@@ -1,3 +1,4 @@
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
@@ -145,3 +146,22 @@ def generate_exam_by_rules(
     ])
 
     return exam
+
+def calculate_final_score(*, objective_score, subjective_score):
+    """Return the sum of objective and subjective scores."""
+
+    try:
+        objective = Decimal(str(objective_score))
+        subjective = Decimal(str(subjective_score))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValidationError(
+            "Objective and subjective scores must be valid numbers."
+        ) from None
+
+    if not objective.is_finite() or not subjective.is_finite():
+        raise ValidationError("Scores must be finite numbers.")
+
+    if objective < 0 or subjective < 0:
+        raise ValidationError("Scores cannot be negative.")
+
+    return objective + subjective

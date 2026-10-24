@@ -1,4 +1,4 @@
-
+from decimal import Decimal
 from django.test import TestCase
 from rest_framework.exceptions import ValidationError
 
@@ -6,6 +6,7 @@ from exam_management.models import Exam, ExamQuestion
 from exam_management.services import (
     assemble_exam_manually,
     generate_exam_by_rules,
+    calculate_final_score,
 )
 from question_bank.models import Question
 from rest_framework.test import APIClient
@@ -376,3 +377,39 @@ class ExamAPITests(TestCase):
         response = self.client.get(reverse("exam-list-create"))
 
         self.assertEqual(response.status_code, 403)
+
+class CalculateFinalScoreTests(TestCase):
+    def test_adds_objective_and_subjective_scores(self):
+        result = calculate_final_score(
+            objective_score=Decimal("20"),
+            subjective_score=Decimal("15"),
+        )
+        self.assertEqual(result, Decimal("35"))
+
+    def test_preserves_decimal_precision(self):
+        result = calculate_final_score(
+            objective_score=Decimal("2.35"),
+            subjective_score=Decimal("1.45"),
+        )
+        self.assertEqual(result, Decimal("3.80"))
+
+    def test_rejects_negative_scores(self):
+        with self.assertRaises(ValidationError):
+            calculate_final_score(
+                objective_score=Decimal("-1"),
+                subjective_score=Decimal("5"),
+            )
+
+    def test_rejects_invalid_scores(self):
+        with self.assertRaises(ValidationError):
+            calculate_final_score(
+                objective_score="invalid",
+                subjective_score=Decimal("5"),
+            )
+
+    def test_rejects_non_finite_scores(self):
+        with self.assertRaises(ValidationError):
+            calculate_final_score(
+                objective_score="NaN",
+                subjective_score=Decimal("5"),
+            )
