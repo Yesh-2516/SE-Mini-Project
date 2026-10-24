@@ -13,6 +13,9 @@ class QuestionSerializer(serializers.ModelSerializer):
             "question_type",
             "options",
             "correct_answer",
+            "subject",
+            "topic",
+            "difficulty",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
@@ -83,5 +86,16 @@ class QuestionSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     "correct_answer": "A correct answer is required."
                 })
+
+        for field in ("subject", "topic"):
+            value = attrs.get(
+                field,
+                getattr(self.instance, field, ""),
+            )
+            if not isinstance(value, str) or not value.strip():
+                raise serializers.ValidationError({
+                    field: f"{field.capitalize()} cannot be blank."
+                })
+            attrs[field] = value.strip()
 
         return attrs
