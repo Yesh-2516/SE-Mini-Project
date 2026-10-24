@@ -4,6 +4,7 @@ class Question(models.Model):
     class QuestionType(models.TextChoices):
         MCQ = "MCQ", "Multiple Choice"
         TRUE_FALSE = "TRUE_FALSE", "True/False"
+        FILL_IN_THE_BLANK = "FILL_IN_THE_BLANK", "Fill in the Blank"
         SHORT_ANSWER = "SHORT_ANSWER", "Short Answer"
 
     class Difficulty(models.TextChoices):

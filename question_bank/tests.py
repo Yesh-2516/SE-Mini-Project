@@ -1,10 +1,10 @@
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from question_bank.models import Question
-
 
 class QuestionModelTests(TestCase):
     def test_create_mcq_question(self):
@@ -78,6 +78,13 @@ class QuestionModelTests(TestCase):
 
 class QuestionAPITests(APITestCase):
     url = "/api/questions/"
+    def setUp(self):
+        self.staff_user = get_user_model().objects.create_user(
+            username="question_staff",
+            password="test-password-123",
+            is_staff=True,
+        )
+        self.client.force_authenticate(user=self.staff_user)
 
     def question_data(self, **overrides):
         data = {
@@ -502,4 +509,53 @@ class QuestionAPITests(APITestCase):
         self.assertEqual(
             response.data[0]["difficulty"],
             "HARD",
+        )
+
+    def test_create_fill_in_the_blank_question(self):
+        data = self.question_data()
+        data.update({
+            "text": "CPU stands for ____.",
+            "question_type": "FILL_IN_THE_BLANK",
+            "options": [],
+            "correct_answer": "Central Processing Unit",
+        })
+
+        response = self.client.post(
+            self.url,
+            data,
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertEqual(
+            response.data["question_type"],
+            "FILL_IN_THE_BLANK",
+        )
+
+    def test_anonymous_user_cannot_access_question_bank(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_non_staff_user_cannot_access_question_bank(self):
+        student = get_user_model().objects.create_user(
+            username="question_student",
+            password="test-password-123",
+            is_staff=False,
+        )
+        self.client.force_authenticate(user=student)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
         )
