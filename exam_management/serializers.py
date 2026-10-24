@@ -15,6 +15,8 @@ class ExamCreateSerializer(serializers.ModelSerializer):
             "title",
             "status",
             "duration_minutes",
+            "availability_start",
+            "availability_end",
             "negative_marking_enabled",
             "negative_marks",
             "total_marks",
@@ -43,6 +45,7 @@ class ExamCreateSerializer(serializers.ModelSerializer):
             )
         return value
 
+
     def validate(self, attrs):
         enabled = attrs.get(
             "negative_marking_enabled",
@@ -57,6 +60,33 @@ class ExamCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 "negative_marks": (
                     "Set a penalty greater than zero when negative marking is enabled."
+                )
+            })
+
+        availability_start = attrs.get(
+            "availability_start",
+            getattr(self.instance, "availability_start", None),
+        )
+        availability_end = attrs.get(
+            "availability_end",
+            getattr(self.instance, "availability_end", None),
+        )
+
+        if (availability_start is None) != (availability_end is None):
+            raise serializers.ValidationError({
+                "availability": (
+                    "Both availability start and end must be provided together."
+                )
+            })
+
+        if (
+            availability_start is not None
+            and availability_end is not None
+            and availability_end <= availability_start
+        ):
+            raise serializers.ValidationError({
+                "availability_end": (
+                    "Availability end must be later than availability start."
                 )
             })
 
