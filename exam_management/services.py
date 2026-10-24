@@ -31,11 +31,6 @@ def assemble_exam_manually(*, exam, question_ids):
             {"question_ids": "Duplicate question IDs are not allowed."}
         )
 
-    if len(question_ids) != len(set(question_ids)):
-        raise ValidationError(
-            {"question_ids": "Duplicate question IDs are not allowed."}
-        )
-
     questions = list(
         Question.objects.filter(id__in=question_ids)
     )

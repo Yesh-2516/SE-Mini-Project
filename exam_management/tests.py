@@ -184,6 +184,52 @@ class ExamAssemblyTests(TestCase):
 
         self.assertEqual(saved_ids, [self.medium_questions[0].id])
 
+    def test_failed_generation_preserves_existing_questions(self):
+        original_question = self.easy_questions[0]
+
+        assemble_exam_manually(
+            exam=self.exam,
+            question_ids=[original_question.id],
+        )
+
+        with self.assertRaises(ValidationError):
+            generate_exam_by_rules(
+                exam=self.exam,
+                subject="Computer Science",
+                topic="Operating Systems",
+                difficulty_counts={"EASY": 100},
+            )
+
+        saved = list(
+            ExamQuestion.objects.filter(exam=self.exam)
+            .values_list("question_id", flat=True)
+        )
+
+        self.assertEqual(saved, [original_question.id])
+
+    def test_non_draft_exam_cannot_be_assembled(self):
+        self.exam.status = "PUBLISHED"
+        self.exam.save()
+
+        with self.assertRaises(ValidationError):
+            assemble_exam_manually(
+                exam=self.exam,
+                question_ids=[self.easy_questions[0].id],
+            )
+
+        with self.assertRaises(ValidationError):
+            generate_exam_by_rules(
+                exam=self.exam,
+                subject="Computer Science",
+                topic="Operating Systems",
+                difficulty_counts={"EASY": 1},
+            )
+
+        self.assertEqual(
+            ExamQuestion.objects.filter(exam=self.exam).count(),
+            0,
+        )
+
 class ExamAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -253,6 +299,10 @@ class ExamAPITests(TestCase):
             [item["position"] for item in response.data["questions"]],
             [1, 2],
         )
+        self.assertTrue(response.data["questions"])
+
+        for question in response.data["questions"]:
+            self.assertNotIn("correct_answer", question)
 
     def test_manual_assembly_endpoint(self):
         exam = Exam.objects.create(title="Operating Systems Test")
@@ -308,6 +358,20 @@ class ExamAPITests(TestCase):
 
     def test_exam_endpoints_require_staff_access(self):
         self.client.force_authenticate(user=None)
+
+        response = self.client.get(reverse("exam-list-create"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_non_staff_user_cannot_access_exam_endpoints(self):
+        User = get_user_model()
+        regular_user = User.objects.create_user(
+            username="regular_exam_user",
+            password="test-password-123",
+            is_staff=False,
+        )
+
+        self.client.force_authenticate(user=regular_user)
 
         response = self.client.get(reverse("exam-list-create"))
 
