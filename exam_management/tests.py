@@ -376,3 +376,198 @@ class ExamAPITests(TestCase):
         response = self.client.get(reverse("exam-list-create"))
 
         self.assertEqual(response.status_code, 403)
+
+
+    def test_create_exam_saves_scoring_settings(self):
+        response = self.client.post(
+            reverse("exam-list-create"),
+            {
+                "title": "Scoring Settings Test",
+                "duration_minutes": 90,
+                "negative_marking_enabled": True,
+                "negative_marks": "0.50",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["duration_minutes"], 90)
+        self.assertTrue(response.data["negative_marking_enabled"])
+        self.assertEqual(str(response.data["negative_marks"]), "0.50")
+
+    def test_update_exam_duration_and_negative_marking(self):
+        exam = Exam.objects.create(title="Settings Update Test")
+
+        response = self.client.patch(
+            reverse("exam-detail", kwargs={"pk": exam.id}),
+            {
+                "duration_minutes": 45,
+                "negative_marking_enabled": True,
+                "negative_marks": "0.25",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        exam.refresh_from_db()
+        self.assertEqual(exam.duration_minutes, 45)
+        self.assertTrue(exam.negative_marking_enabled)
+        self.assertEqual(str(exam.negative_marks), "0.25")
+
+    def test_update_exam_rejects_zero_duration(self):
+        exam = Exam.objects.create(title="Invalid Duration Test")
+
+        response = self.client.patch(
+            reverse("exam-detail", kwargs={"pk": exam.id}),
+            {"duration_minutes": 0},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_update_exam_rejects_zero_penalty_when_enabled(self):
+        exam = Exam.objects.create(title="Invalid Penalty Test")
+
+        response = self.client.patch(
+            reverse("exam-detail", kwargs={"pk": exam.id}),
+            {
+                "negative_marking_enabled": True,
+                "negative_marks": "0.00",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_update_question_marks_and_calculate_total(self):
+        exam = Exam.objects.create(title="Question Marks Test")
+        questions = [
+            Question.objects.create(
+                text=f"Question {i}",
+                question_type=Question.QuestionType.MCQ,
+                options=["A", "B"],
+                correct_answer="A",
+                subject="Computer Science",
+                topic="Testing",
+                difficulty="EASY",
+            )
+            for i in range(1, 3)
+        ]
+
+        assemble_exam_manually(
+            exam=exam,
+            question_ids=[question.id for question in questions],
+        )
+
+        ExamQuestion.objects.filter(
+            exam=exam,
+            question=questions[0],
+        ).update(marks=2)
+
+        response = self.client.patch(
+            reverse(
+                "exam-question-marks",
+                kwargs={
+                    "pk": exam.id,
+                    "question_id": questions[1].id,
+                },
+            ),
+            {"marks": 5},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["marks"], 5)
+        self.assertEqual(response.data["total_marks"], 7)
+
+        exam.refresh_from_db()
+        self.assertEqual(exam.total_marks, 7)
+
+    def test_question_marks_endpoint_rejects_zero_marks(self):
+        exam = Exam.objects.create(title="Invalid Question Marks Test")
+        question = Question.objects.create(
+            text="Question for marks validation",
+            question_type=Question.QuestionType.MCQ,
+            options=["A", "B"],
+            correct_answer="A",
+            subject="Computer Science",
+            topic="Testing",
+            difficulty="EASY",
+        )
+
+        assemble_exam_manually(
+            exam=exam,
+            question_ids=[question.id],
+        )
+
+        response = self.client.patch(
+            reverse(
+                "exam-question-marks",
+                kwargs={
+                    "pk": exam.id,
+                    "question_id": question.id,
+                },
+            ),
+            {"marks": 0},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+
+    def test_published_exam_settings_cannot_be_updated(self):
+        exam = Exam.objects.create(
+            title="Published Exam",
+            status="PUBLISHED",
+        )
+
+        response = self.client.patch(
+            reverse("exam-detail", kwargs={"pk": exam.id}),
+            {"duration_minutes": 30},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        exam.refresh_from_db()
+        self.assertEqual(exam.duration_minutes, 60)
+
+    def test_published_exam_question_marks_cannot_be_updated(self):
+        exam = Exam.objects.create(
+            title="Published Exam Marks",
+            status="PUBLISHED",
+        )
+        question = Question.objects.create(
+            text="Published exam question",
+            question_type=Question.QuestionType.MCQ,
+            options=["A", "B"],
+            correct_answer="A",
+            subject="Computer Science",
+            topic="Testing",
+            difficulty="EASY",
+        )
+        ExamQuestion.objects.create(
+            exam=exam,
+            question=question,
+            position=1,
+            marks=2,
+        )
+
+        response = self.client.patch(
+            reverse(
+                "exam-question-marks",
+                kwargs={
+                    "pk": exam.id,
+                    "question_id": question.id,
+                },
+            ),
+            {"marks": 5},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        exam_question = ExamQuestion.objects.get(
+            exam=exam,
+            question=question,
+        )
+        self.assertEqual(exam_question.marks, 2)

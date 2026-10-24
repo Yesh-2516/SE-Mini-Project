@@ -4,6 +4,7 @@ from django.urls import path
 from exam_management.views import (
     ExamDetailView,
     ExamListCreateView,
+    ExamQuestionMarksView,
     ManualAssemblyView,
     RuleGenerationView,
 )
@@ -20,5 +21,10 @@ urlpatterns = [
         "<int:pk>/generate/",
         RuleGenerationView.as_view(),
         name="exam-rule-generation",
+    ),
+    path(
+        "<int:pk>/questions/<int:question_id>/marks/",
+        ExamQuestionMarksView.as_view(),
+        name="exam-question-marks",
     ),
 ]
