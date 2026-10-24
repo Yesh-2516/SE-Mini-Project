@@ -6,6 +6,11 @@ class Question(models.Model):
         TRUE_FALSE = "TRUE_FALSE", "True/False"
         SHORT_ANSWER = "SHORT_ANSWER", "Short Answer"
 
+    class Difficulty(models.TextChoices):
+        EASY = "EASY", "Easy"
+        MEDIUM = "MEDIUM", "Medium"
+        HARD = "HARD", "Hard"
+
     text = models.TextField()
     question_type = models.CharField(
         max_length=20,
@@ -13,6 +18,14 @@ class Question(models.Model):
     )
     options = models.JSONField(default=list, blank=True)
     correct_answer = models.TextField()
+
+    subject = models.CharField(max_length=100)
+    topic = models.CharField(max_length=100)
+    difficulty = models.CharField(
+        max_length=10,
+        choices=Difficulty.choices
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
