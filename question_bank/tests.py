@@ -799,3 +799,172 @@ class QuestionBulkImportTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("5 MB", response.data["error"])
         self.assertEqual(Question.objects.count(), 0)
+
+
+class QuestionDetailAPITests(APITestCase):
+    def setUp(self):
+        from exam_management.models import Exam, ExamQuestion
+
+        self.Exam = Exam
+        self.ExamQuestion = ExamQuestion
+
+        self.question = Question.objects.create(
+            text="What is Django?",
+            question_type=Question.QuestionType.SHORT_ANSWER,
+            options=[],
+            correct_answer="A Python web framework",
+            subject="Computer Science",
+            topic="Django",
+            difficulty=Question.Difficulty.EASY,
+        )
+
+    def detail_url(self, question_id=None):
+        question_id = question_id or self.question.id
+        return f"/api/questions/{question_id}/"
+
+    def test_retrieve_question(self):
+        response = self.client.get(self.detail_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["text"], "What is Django?")
+
+    def test_edit_question(self):
+        response = self.client.patch(
+            self.detail_url(),
+            {"text": "What is Django REST Framework?"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.question.refresh_from_db()
+        self.assertEqual(
+            self.question.text,
+            "What is Django REST Framework?",
+        )
+
+    def test_reject_invalid_question_edit(self):
+        response = self.client.patch(
+            self.detail_url(),
+            {"text": "   "},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.text, "What is Django?")
+
+    def test_delete_unattached_question(self):
+        response = self.client.delete(self.detail_url())
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+        self.assertFalse(
+            Question.objects.filter(pk=self.question.pk).exists()
+        )
+
+    def test_edit_question_attached_to_published_exam_is_blocked(self):
+        exam = self.Exam.objects.create(title="Published Test")
+        exam.status = "PUBLISHED"
+        exam.save()
+        self.ExamQuestion.objects.create(
+            exam=exam,
+            question=self.question,
+            position=1,
+        )
+
+        response = self.client.patch(
+            self.detail_url(),
+            {"text": "Changed question"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertIn("published or live exam", response.data["detail"])
+
+    def test_delete_question_attached_to_published_exam_is_blocked(self):
+        exam = self.Exam.objects.create(title="Published Test")
+        exam.status = "PUBLISHED"
+        exam.save()
+        self.ExamQuestion.objects.create(
+            exam=exam,
+            question=self.question,
+            position=1,
+        )
+
+        response = self.client.delete(self.detail_url())
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertTrue(
+            Question.objects.filter(pk=self.question.pk).exists()
+        )
+
+    def test_delete_question_attached_to_draft_exam(self):
+        exam = self.Exam.objects.create(title="Draft Test")
+        self.ExamQuestion.objects.create(
+            exam=exam,
+            question=self.question,
+            position=1,
+        )
+
+        response = self.client.delete(self.detail_url())
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+        self.assertFalse(
+            Question.objects.filter(pk=self.question.pk).exists()
+        )
+        self.assertFalse(
+            self.ExamQuestion.objects.filter(exam=exam).exists()
+        )
+    def test_edit_question_attached_to_draft_exam(self):
+        exam = self.Exam.objects.create(title="Draft Test")
+        self.ExamQuestion.objects.create(
+            exam=exam,
+            question=self.question,
+            position=1,
+        )
+
+        response = self.client.patch(
+            self.detail_url(),
+            {"text": "Updated draft question"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.text, "Updated draft question")
+
+    def test_edit_question_attached_to_live_exam_is_blocked(self):
+        exam = self.Exam.objects.create(title="Live Test")
+        exam.status = "LIVE"
+        exam.save()
+        self.ExamQuestion.objects.create(
+            exam=exam,
+            question=self.question,
+            position=1,
+        )
+
+        response = self.client.patch(
+            self.detail_url(),
+            {"text": "Changed question"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertIn("published or live exam", response.data["detail"])
