@@ -1,8 +1,10 @@
-
+import csv
+import io
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
-
+from openpyxl import Workbook
+from django.core.files.uploadedfile import SimpleUploadedFile
 from question_bank.models import Question
 
 
@@ -503,3 +505,297 @@ class QuestionAPITests(APITestCase):
             response.data[0]["difficulty"],
             "HARD",
         )
+
+class QuestionTemplateDownloadTests(APITestCase):
+    def test_download_template_returns_csv_with_expected_headers(self):
+        response = self.client.get("/api/questions/import/template/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response["Content-Type"],
+            "text/csv; charset=utf-8",
+        )
+        self.assertIn(
+            'attachment; filename="question_import_template.csv"',
+            response["Content-Disposition"],
+        )
+
+        reader = csv.reader(io.StringIO(response.content.decode("utf-8")))
+        rows = list(reader)
+
+        self.assertEqual(
+            rows[0],
+            [
+                "text",
+                "question_type",
+                "options",
+                "correct_answer",
+                "subject",
+                "topic",
+                "difficulty",
+            ],
+        )
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1][1], "MCQ")
+
+class QuestionBulkImportTests(APITestCase):
+    url = "/api/questions/import/"
+
+    headers = [
+        "text",
+        "question_type",
+        "options",
+        "correct_answer",
+        "subject",
+        "topic",
+        "difficulty",
+    ]
+
+    def make_csv(self, rows, name="questions.csv"):
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(self.headers)
+        writer.writerows(rows)
+
+        return SimpleUploadedFile(
+            name,
+            output.getvalue().encode("utf-8"),
+            content_type="text/csv",
+        )
+
+    def valid_mcq_row(self):
+        return [
+            "Which language is used with Django?",
+            "MCQ",
+            '["Python","Java"]',
+            "Python",
+            "Computer Science",
+            "Django",
+            "EASY",
+        ]
+
+    def test_import_valid_csv(self):
+        uploaded_file = self.make_csv([self.valid_mcq_row()])
+
+        response = self.client.post(
+            self.url,
+            {"file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["imported_count"], 1)
+        self.assertEqual(Question.objects.count(), 1)
+        self.assertEqual(Question.objects.first().correct_answer, "Python")
+
+    def test_reject_invalid_row_without_saving_any_questions(self):
+        valid_row = self.valid_mcq_row()
+        invalid_row = [
+            "Choose a language",
+            "MCQ",
+            '["Python"]',
+            "Python",
+            "Computer Science",
+            "Programming",
+            "EASY",
+        ]
+
+        response = self.client.post(
+            self.url,
+            {"file": self.make_csv([valid_row, invalid_row])},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["imported_count"], 0)
+        self.assertEqual(len(response.data["errors"]), 1)
+        self.assertEqual(response.data["errors"][0]["row"], 3)
+        self.assertEqual(Question.objects.count(), 0)
+
+    def test_reject_upload_without_file(self):
+        response = self.client.post(self.url, {}, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Question.objects.count(), 0)
+
+    def test_reject_unsupported_file_type(self):
+        uploaded_file = SimpleUploadedFile(
+            "questions.txt",
+            b"not a supported file",
+            content_type="text/plain",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Unsupported file type", response.data["error"])
+        self.assertEqual(Question.objects.count(), 0)
+
+    def test_import_valid_excel(self):
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.append(self.headers)
+        worksheet.append(self.valid_mcq_row())
+
+        output = io.BytesIO()
+        workbook.save(output)
+        workbook.close()
+
+        uploaded_file = SimpleUploadedFile(
+            "questions.xlsx",
+            output.getvalue(),
+            content_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+        )
+
+        response = self.client.post(
+            self.url,
+            {"file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["imported_count"], 1)
+        self.assertEqual(Question.objects.count(), 1)
+
+    def test_reject_missing_required_header(self):
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(self.headers[:-1])
+        writer.writerow(self.valid_mcq_row()[:-1])
+
+        uploaded_file = SimpleUploadedFile(
+            "questions.csv",
+            output.getvalue().encode("utf-8"),
+            content_type="text/csv",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Missing required columns", response.data["error"])
+        self.assertEqual(Question.objects.count(), 0)
+
+    def test_reject_duplicate_headers(self):
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(self.headers + ["text"])
+        writer.writerow(self.valid_mcq_row() + ["Duplicate value"])
+
+        uploaded_file = SimpleUploadedFile(
+            "questions.csv",
+            output.getvalue().encode("utf-8"),
+            content_type="text/csv",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("duplicate column headers", response.data["error"])
+        self.assertEqual(Question.objects.count(), 0)
+
+    def test_reject_malformed_options_json(self):
+        row = self.valid_mcq_row()
+        row[2] = '["Python",'
+
+        response = self.client.post(
+            self.url,
+            {"file": self.make_csv([row])},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["imported_count"], 0)
+        self.assertEqual(response.data["errors"][0]["row"], 2)
+        self.assertIn("options", response.data["errors"][0]["errors"])
+        self.assertEqual(Question.objects.count(), 0)
+
+    def test_reject_csv_row_with_extra_columns(self):
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(self.headers)
+        writer.writerow(self.valid_mcq_row() + ["unexpected value"])
+
+        uploaded_file = SimpleUploadedFile(
+            "questions.csv",
+            output.getvalue().encode("utf-8"),
+            content_type="text/csv",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["imported_count"], 0)
+        self.assertEqual(response.data["errors"][0]["row"], 2)
+        self.assertEqual(Question.objects.count(), 0)
+
+    def test_excel_error_reports_correct_row_after_blank_row(self):
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.append(self.headers)
+        worksheet.append(self.valid_mcq_row())
+        worksheet.append([None] * len(self.headers))
+
+        invalid_row = self.valid_mcq_row()
+        invalid_row[2] = '["Python"]'
+        worksheet.append(invalid_row)
+
+        output = io.BytesIO()
+        workbook.save(output)
+        workbook.close()
+
+        uploaded_file = SimpleUploadedFile(
+            "questions.xlsx",
+            output.getvalue(),
+            content_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+        )
+
+        response = self.client.post(
+            self.url,
+            {"file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["imported_count"], 0)
+        self.assertEqual(response.data["errors"][0]["row"], 4)
+        self.assertEqual(Question.objects.count(), 0)
+    def test_reject_file_larger_than_size_limit(self):
+        from question_bank.views import MAX_IMPORT_FILE_SIZE
+
+        uploaded_file = SimpleUploadedFile(
+            "questions.csv",
+            b"x" * (MAX_IMPORT_FILE_SIZE + 1),
+            content_type="text/csv",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("5 MB", response.data["error"])
+        self.assertEqual(Question.objects.count(), 0)
