@@ -13,6 +13,14 @@ class Exam(models.Model):
         default=Status.DRAFT,
     )
     duration_minutes = models.PositiveIntegerField(default=60)
+    availability_start = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    availability_end = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
     negative_marking_enabled = models.BooleanField(default=False)
     negative_marks = models.DecimalField(
         max_digits=6,

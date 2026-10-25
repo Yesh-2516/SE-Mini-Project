@@ -415,6 +415,77 @@ class ExamAPITests(TestCase):
         self.assertTrue(exam.negative_marking_enabled)
         self.assertEqual(str(exam.negative_marks), "0.25")
 
+
+    def test_create_exam_saves_availability_window(self):
+        response = self.client.post(
+            reverse("exam-list-create"),
+            {
+                "title": "Scheduled Exam",
+                "availability_start": "2026-11-01T09:00:00Z",
+                "availability_end": "2026-11-01T11:00:00Z",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            response.data["availability_start"],
+            "2026-11-01T09:00:00Z",
+        )
+        self.assertEqual(
+            response.data["availability_end"],
+            "2026-11-01T11:00:00Z",
+        )
+
+    def test_update_exam_availability_window(self):
+        exam = Exam.objects.create(title="Availability Update Test")
+
+        response = self.client.patch(
+            reverse("exam-detail", kwargs={"pk": exam.id}),
+            {
+                "availability_start": "2026-11-02T09:00:00Z",
+                "availability_end": "2026-11-02T10:30:00Z",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        exam.refresh_from_db()
+        self.assertIsNotNone(exam.availability_start)
+        self.assertIsNotNone(exam.availability_end)
+        self.assertLess(
+            exam.availability_start,
+            exam.availability_end,
+        )
+
+    def test_exam_availability_end_must_be_later_than_start(self):
+        exam = Exam.objects.create(title="Invalid Availability Test")
+
+        response = self.client.patch(
+            reverse("exam-detail", kwargs={"pk": exam.id}),
+            {
+                "availability_start": "2026-11-02T11:00:00Z",
+                "availability_end": "2026-11-02T10:00:00Z",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_exam_availability_window_requires_both_dates(self):
+        exam = Exam.objects.create(title="Incomplete Availability Test")
+
+        response = self.client.patch(
+            reverse("exam-detail", kwargs={"pk": exam.id}),
+            {
+                "availability_start": "2026-11-02T09:00:00Z",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
     def test_update_exam_rejects_zero_duration(self):
         exam = Exam.objects.create(title="Invalid Duration Test")
 
