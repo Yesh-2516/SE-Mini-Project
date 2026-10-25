@@ -156,8 +156,11 @@ class QuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Remove links to draft exams before deleting the question.
-        question.exam_question_links.all().delete()
+        # Remove links only from draft exams before deleting the question.
+        question.exam_question_links.filter(
+            exam__status="DRAFT"
+        ).delete()
+
         question.delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
