@@ -116,3 +116,51 @@ def import_questions(request):
         },
         status=status.HTTP_201_CREATED,
     )
+
+class QuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = QuestionSerializer
+    queryset = Question.objects.all()
+
+    def _is_locked(self, question):
+        return question.exams.filter(
+            status__in=["PUBLISHED", "LIVE"]
+        ).exists()
+
+    def update(self, request, *args, **kwargs):
+        question = self.get_object()
+
+        if self._is_locked(question):
+            return Response(
+                {
+                    "detail": (
+                        "This question cannot be edited because it is "
+                        "attached to a published or live exam."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        question = self.get_object()
+
+        if self._is_locked(question):
+            return Response(
+                {
+                    "detail": (
+                        "This question cannot be deleted because it is "
+                        "attached to a published or live exam."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Remove links only from draft exams before deleting the question.
+        question.exam_question_links.filter(
+            exam__status="DRAFT"
+        ).delete()
+
+        question.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
