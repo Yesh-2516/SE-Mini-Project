@@ -1,9 +1,51 @@
 
 from django.db import transaction
-from rest_framework.exceptions import ValidationError
+from django.utils import timezone
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from exam_management.models import Exam, ExamQuestion
+from exam_management.serializers import StudentExamQuestionSerializer
 from question_bank.models import Question
+
+
+class ExamNotOpen(PermissionDenied):
+    default_detail = "This exam is not open."
+    default_code = "exam_not_open"
+
+
+def is_exam_open(exam, now=None):
+    """Return True only while the exam's availability window is open."""
+
+    if exam.availability_start is None or exam.availability_end is None:
+        return False
+
+    now = now or timezone.now()
+    return exam.availability_start <= now < exam.availability_end
+
+
+def get_student_exam_paper(*, exam, now=None):
+    """Return an exam's questions as a student may see them (OEP-SR-004).
+
+    Raises ExamNotOpen (403) outside the availability window. The result
+    never contains correct answers. Callers still have to check that the
+    student is allowed to sit this exam (publishing and course assignment).
+    """
+
+    if not is_exam_open(exam, now):
+        raise ExamNotOpen()
+
+    exam_questions = exam.exam_questions.select_related("question")
+
+    return {
+        "exam_id": exam.id,
+        "title": exam.title,
+        "duration_minutes": exam.duration_minutes,
+        "availability_end": exam.availability_end,
+        "questions": StudentExamQuestionSerializer(
+            exam_questions,
+            many=True,
+        ).data,
+    }
 
 
 @transaction.atomic

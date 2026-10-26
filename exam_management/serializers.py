@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from exam_management.models import Exam
+from question_bank.models import Question
 
 
 class ExamCreateSerializer(serializers.ModelSerializer):
@@ -119,6 +120,31 @@ class RuleGenerationSerializer(serializers.Serializer):
         child=serializers.IntegerField(min_value=0),
         allow_empty=False,
     )
+
+
+class StudentExamQuestionSerializer(serializers.Serializer):
+    """Question as shown to a student taking an exam (OEP-SR-004).
+
+    Fields are listed explicitly so new Question fields, such as the
+    correct answer, can never reach a student by default.
+    """
+
+    question_id = serializers.IntegerField(source="question.id")
+    position = serializers.IntegerField()
+    marks = serializers.IntegerField()
+    text = serializers.CharField(source="question.text")
+    question_type = serializers.CharField(source="question.question_type")
+    options = serializers.SerializerMethodField()
+
+    def get_options(self, exam_question):
+        question = exam_question.question
+
+        if question.question_type == Question.QuestionType.MCQ:
+            return list(question.options)
+        if question.question_type == Question.QuestionType.TRUE_FALSE:
+            return ["True", "False"]
+        # Free-text answers get no options, so nothing stored there leaks.
+        return []
 
 
 class ExamQuestionMarksSerializer(serializers.Serializer):
