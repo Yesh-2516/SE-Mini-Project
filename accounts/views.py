@@ -1,4 +1,6 @@
 from django.db import IntegrityError, transaction
+from django.utils.decorators import method_decorator
+from django.views.decorators.debug import sensitive_post_parameters
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -28,6 +30,8 @@ def validation_error_status(errors):
     return status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
+# Mask passwords in Django error reports (OEP-SR-002).
+@method_decorator(sensitive_post_parameters("password"), name="dispatch")
 class StudentRegistrationView(APIView):
     """Let a new student create an account."""
 
