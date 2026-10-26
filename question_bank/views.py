@@ -5,6 +5,7 @@ from django.db import transaction
 from django.http import HttpResponse
 from rest_framework import generics, status
 from rest_framework.decorators import api_view
+from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 
 from question_bank.import_utils import parse_question_file
@@ -13,8 +14,12 @@ from question_bank.serializers import QuestionSerializer
 
 MAX_IMPORT_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
+
 class QuestionListCreateView(generics.ListCreateAPIView):
     serializer_class = QuestionSerializer
+    # TEMP: is_staff stands in for Faculty/Admin until the real
+    # role-based authorization is integrated.
+    permission_classes = [IsAdminUser]
 
     def get_queryset(self):
         queryset = Question.objects.all().order_by("-created_at")
@@ -34,16 +39,14 @@ class QuestionListCreateView(generics.ListCreateAPIView):
 
         return queryset
 
+
 def download_question_template(request):
-    response = HttpResponse(
-        content_type="text/csv; charset=utf-8",
-    )
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = (
         'attachment; filename="question_import_template.csv"'
     )
 
     writer = csv.writer(response)
-
     writer.writerow([
         "text",
         "question_type",
@@ -53,7 +56,6 @@ def download_question_template(request):
         "topic",
         "difficulty",
     ])
-
     writer.writerow([
         "Which language is used with Django?",
         "MCQ",
@@ -116,6 +118,7 @@ def import_questions(request):
         },
         status=status.HTTP_201_CREATED,
     )
+
 
 class QuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = QuestionSerializer
