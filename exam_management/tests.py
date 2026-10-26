@@ -361,7 +361,7 @@ class ExamAPITests(TestCase):
 
         response = self.client.get(reverse("exam-list-create"))
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 401)
 
     def test_non_staff_user_cannot_access_exam_endpoints(self):
         User = get_user_model()
