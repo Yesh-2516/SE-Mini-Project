@@ -86,7 +86,7 @@ class QuestionAPITests(APITestCase):
         self.staff_user = get_user_model().objects.create_user(
             username="question_staff",
             password="test-password-123",
-            is_staff=True,
+            role="FACULTY",
         )
         self.client.force_authenticate(user=self.staff_user)
 
@@ -553,7 +553,7 @@ class QuestionAPITests(APITestCase):
         student = get_user_model().objects.create_user(
             username="question_student",
             password="test-password-123",
-            is_staff=False,
+            role="STUDENT",
         )
         self.client.force_authenticate(user=student)
 
@@ -564,14 +564,20 @@ class QuestionAPITests(APITestCase):
             status.HTTP_403_FORBIDDEN,
         )
 
+
+def authenticate_as_faculty(client, username="question_faculty"):
+    faculty = get_user_model().objects.create_user(
+        username=username,
+        password="test-password-123",
+        role="FACULTY",
+    )
+    client.force_authenticate(user=faculty)
+    return faculty
+
+
 class QuestionTemplateDownloadTests(APITestCase):
     def setUp(self):
-        self.staff_user = get_user_model().objects.create_user(
-            username="template_staff",
-            password="test-password-123",
-            is_staff=True,
-        )
-        self.client.force_authenticate(user=self.staff_user)
+        authenticate_as_faculty(self.client)
 
     def test_download_template_returns_csv_with_expected_headers(self):
         response = self.client.get("/api/questions/import/template/")
@@ -611,14 +617,14 @@ class QuestionTemplateDownloadTests(APITestCase):
 
         self.assertEqual(
             response.status_code,
-            status.HTTP_403_FORBIDDEN,
+            status.HTTP_401_UNAUTHORIZED,
         )
 
     def test_non_staff_user_cannot_download_template(self):
         student = get_user_model().objects.create_user(
             username="template_student",
             password="test-password-123",
-            is_staff=False,
+            role="STUDENT",
         )
         self.client.force_authenticate(user=student)
 
@@ -633,12 +639,7 @@ class QuestionBulkImportTests(APITestCase):
     url = "/api/questions/import/"
 
     def setUp(self):
-        self.staff_user = get_user_model().objects.create_user(
-            username="import_staff",
-            password="test-password-123",
-            is_staff=True,
-        )
-        self.client.force_authenticate(user=self.staff_user)
+        authenticate_as_faculty(self.client)
 
     headers = [
         "text",
@@ -698,7 +699,7 @@ class QuestionBulkImportTests(APITestCase):
 
         self.assertEqual(
             response.status_code,
-            status.HTTP_403_FORBIDDEN,
+            status.HTTP_401_UNAUTHORIZED,
         )
         self.assertEqual(Question.objects.count(), 0)
 
@@ -706,7 +707,7 @@ class QuestionBulkImportTests(APITestCase):
         student = get_user_model().objects.create_user(
             username="import_student",
             password="test-password-123",
-            is_staff=False,
+            role="STUDENT",
         )
         self.client.force_authenticate(user=student)
 
@@ -937,12 +938,7 @@ class QuestionBulkImportTests(APITestCase):
 
 class QuestionDetailAPITests(APITestCase):
     def setUp(self):
-        self.staff_user = get_user_model().objects.create_user(
-            username="detail_staff",
-            password="test-password-123",
-            is_staff=True,
-        )
-        self.client.force_authenticate(user=self.staff_user)
+        authenticate_as_faculty(self.client)
 
         from exam_management.models import Exam, ExamQuestion
 
@@ -1117,7 +1113,7 @@ class QuestionDetailAPITests(APITestCase):
 
         self.assertEqual(
             response.status_code,
-            status.HTTP_403_FORBIDDEN,
+            status.HTTP_401_UNAUTHORIZED,
         )
         self.assertNotIn(b"A Python web framework", response.content)
 
@@ -1125,7 +1121,7 @@ class QuestionDetailAPITests(APITestCase):
         student = get_user_model().objects.create_user(
             username="detail_student",
             password="test-password-123",
-            is_staff=False,
+            role="STUDENT",
         )
         self.client.force_authenticate(user=student)
 
@@ -1141,7 +1137,7 @@ class QuestionDetailAPITests(APITestCase):
         student = get_user_model().objects.create_user(
             username="detail_student_edit",
             password="test-password-123",
-            is_staff=False,
+            role="STUDENT",
         )
         self.client.force_authenticate(user=student)
 
@@ -1169,7 +1165,7 @@ class QuestionDetailAPITests(APITestCase):
 
         self.assertEqual(
             response.status_code,
-            status.HTTP_403_FORBIDDEN,
+            status.HTTP_401_UNAUTHORIZED,
         )
         self.question.refresh_from_db()
         self.assertEqual(self.question.text, "What is Django?")
@@ -1181,7 +1177,7 @@ class QuestionDetailAPITests(APITestCase):
 
         self.assertEqual(
             response.status_code,
-            status.HTTP_403_FORBIDDEN,
+            status.HTTP_401_UNAUTHORIZED,
         )
         self.assertTrue(
             Question.objects.filter(pk=self.question.pk).exists()
@@ -1191,7 +1187,7 @@ class QuestionDetailAPITests(APITestCase):
         student = get_user_model().objects.create_user(
             username="detail_student_delete",
             password="test-password-123",
-            is_staff=False,
+            role="STUDENT",
         )
         self.client.force_authenticate(user=student)
 

@@ -237,7 +237,7 @@ class ExamAPITests(TestCase):
         self.admin = User.objects.create_user(
             username="exam_admin",
             password="test-password-123",
-            is_staff=True,
+            role="FACULTY",
         )
         self.client.force_authenticate(user=self.admin)
 
@@ -368,7 +368,7 @@ class ExamAPITests(TestCase):
         regular_user = User.objects.create_user(
             username="regular_exam_user",
             password="test-password-123",
-            is_staff=False,
+            role="STUDENT",
         )
 
         self.client.force_authenticate(user=regular_user)

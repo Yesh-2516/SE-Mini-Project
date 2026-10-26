@@ -1,10 +1,10 @@
 
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
-from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsFacultyOrAdmin
 from exam_management.models import Exam, ExamQuestion
 from exam_management.serializers import (
     ExamCreateSerializer,
@@ -24,7 +24,7 @@ class ExamListCreateView(generics.ListCreateAPIView):
 
     queryset = Exam.objects.all().order_by("-created_at")
     serializer_class = ExamCreateSerializer
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsFacultyOrAdmin]
 
 
 class ExamDetailView(generics.RetrieveUpdateAPIView):
@@ -34,7 +34,7 @@ class ExamDetailView(generics.RetrieveUpdateAPIView):
         "exam_questions__question"
     )
     serializer_class = ExamCreateSerializer
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsFacultyOrAdmin]
 
     def retrieve(self, request, *args, **kwargs):
         exam = self.get_object()
@@ -69,7 +69,7 @@ class ExamDetailView(generics.RetrieveUpdateAPIView):
 class ManualAssemblyView(APIView):
     """Assemble an exam from manually selected question IDs."""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsFacultyOrAdmin]
 
     def post(self, request, pk):
         exam = get_object_or_404(Exam, pk=pk)
@@ -90,7 +90,7 @@ class ManualAssemblyView(APIView):
 class RuleGenerationView(APIView):
     """Generate an exam from subject, topic and difficulty counts."""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsFacultyOrAdmin]
 
     def post(self, request, pk):
         exam = get_object_or_404(Exam, pk=pk)
@@ -112,7 +112,7 @@ class RuleGenerationView(APIView):
 class ExamQuestionMarksView(APIView):
     """Update the marks assigned to a question in an exam."""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsFacultyOrAdmin]
 
     def patch(self, request, pk, question_id):
         exam = get_object_or_404(Exam, pk=pk)
