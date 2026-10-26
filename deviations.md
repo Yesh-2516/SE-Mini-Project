@@ -14,6 +14,8 @@
 - This is a temporary stand-in for the intended Faculty/Admin role-based authorization.
 - Replace or integrate this check when the actual role implementation becomes available.
 - Verify that future student-facing exam endpoints never expose correct answers.
+- Question detail retrieval, update, and deletion, bulk question import, and template download are restricted to staff users.
+- The permissions fix is being completed as Sprint 1 carryover; full role-based authorization remains an integration dependency.
 
 ## 3. Integration Dependencies
 
