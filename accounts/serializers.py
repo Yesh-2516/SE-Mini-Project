@@ -143,3 +143,25 @@ class UserSerializer(serializers.ModelSerializer):
             "role",
         ]
         read_only_fields = fields
+
+
+class LoginSerializer(serializers.Serializer):
+    """Accept a username, email or roll number together with a password."""
+
+    username = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.CharField(required=False, allow_blank=True)
+    password = serializers.CharField(
+        trim_whitespace=False,
+        style={"input_type": "password"},
+    )
+
+    def validate(self, attrs):
+        identifier = (attrs.get("username") or attrs.get("email") or "").strip()
+
+        if not identifier:
+            raise serializers.ValidationError({
+                "username": ["Provide a username, email or roll number."]
+            })
+
+        attrs["identifier"] = identifier
+        return attrs

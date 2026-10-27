@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework.authtoken',
     'accounts',
     'question_bank',
     'exam_management',
@@ -93,6 +94,19 @@ PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.Argon2PasswordHasher',
     'django.contrib.auth.hashers.PBKDF2PasswordHasher',
 ]
+
+
+AUTHENTICATION_BACKENDS = [
+    'accounts.backends.EmailUsernameOrRollNumberBackend',
+]
+
+REST_FRAMEWORK = {
+    # Token first so unauthenticated API requests get 401, not 403.
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+}
 
 
 # Password validation
