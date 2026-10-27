@@ -5,9 +5,9 @@ from django.db import transaction
 from django.http import HttpResponse
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 
+from accounts.permissions import IsFacultyOrAdmin
 from question_bank.import_utils import parse_question_file
 from question_bank.models import Question
 from question_bank.serializers import QuestionSerializer
@@ -17,9 +17,7 @@ MAX_IMPORT_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
 class QuestionListCreateView(generics.ListCreateAPIView):
     serializer_class = QuestionSerializer
-    # TEMP: is_staff stands in for Faculty/Admin until the real
-    # role-based authorization is integrated.
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsFacultyOrAdmin]
 
     def get_queryset(self):
         queryset = Question.objects.all().order_by("-created_at")
@@ -41,7 +39,7 @@ class QuestionListCreateView(generics.ListCreateAPIView):
 
 
 @api_view(["GET"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsFacultyOrAdmin])
 def download_question_template(request):
     response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = (
@@ -72,7 +70,7 @@ def download_question_template(request):
 
 
 @api_view(["POST"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsFacultyOrAdmin])
 def import_questions(request):
     uploaded_file = request.FILES.get("file")
 
@@ -126,7 +124,7 @@ def import_questions(request):
 class QuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = QuestionSerializer
     queryset = Question.objects.all()
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsFacultyOrAdmin]
 
     def _is_locked(self, question):
         return question.exams.filter(

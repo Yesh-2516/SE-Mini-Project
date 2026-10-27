@@ -8,14 +8,12 @@
 - Answers are compared case-insensitively after whitespace normalization.
 - Short-answer questions are excluded from automatic grading and require manual evaluation.
 
-## 2. Temporary Authorization
+## 2. Authorization
 
-- The question-bank API currently uses Django `IsAdminUser`, which checks `is_staff`.
-- This is a temporary stand-in for the intended Faculty/Admin role-based authorization.
-- Replace or integrate this check when the actual role implementation becomes available.
+- Resolved by OEP-F-003: the temporary `IsAdminUser` (`is_staff`) checks were replaced with role-based permissions from `accounts.permissions`.
+- Question-bank and exam-management endpoints (including question detail, import and template download) now require the Faculty or Admin role.
+- The API denies by default (`IsAuthenticated`); only register and login are public. `accounts/test_rbac.py` walks every `/api/` route and fails if one is reachable anonymously or by a Student without being explicitly allowed.
 - Verify that future student-facing exam endpoints never expose correct answers.
-- Question detail retrieval, update, and deletion, bulk question import, and template download are restricted to staff users.
-- The permissions fix is being completed as Sprint 1 carryover; full role-based authorization remains an integration dependency.
 
 ## 3. Integration Dependencies
 
