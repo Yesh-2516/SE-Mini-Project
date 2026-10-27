@@ -564,8 +564,15 @@ class QuestionAPITests(APITestCase):
             status.HTTP_403_FORBIDDEN,
         )
 
-
 class QuestionTemplateDownloadTests(APITestCase):
+    def setUp(self):
+        self.staff_user = get_user_model().objects.create_user(
+            username="template_staff",
+            password="test-password-123",
+            is_staff=True,
+        )
+        self.client.force_authenticate(user=self.staff_user)
+
     def test_download_template_returns_csv_with_expected_headers(self):
         response = self.client.get("/api/questions/import/template/")
 
@@ -597,8 +604,41 @@ class QuestionTemplateDownloadTests(APITestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[1][1], "MCQ")
 
+    def test_anonymous_user_cannot_download_template(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.get("/api/questions/import/template/")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_non_staff_user_cannot_download_template(self):
+        student = get_user_model().objects.create_user(
+            username="template_student",
+            password="test-password-123",
+            is_staff=False,
+        )
+        self.client.force_authenticate(user=student)
+
+        response = self.client.get("/api/questions/import/template/")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
 class QuestionBulkImportTests(APITestCase):
     url = "/api/questions/import/"
+
+    def setUp(self):
+        self.staff_user = get_user_model().objects.create_user(
+            username="import_staff",
+            password="test-password-123",
+            is_staff=True,
+        )
+        self.client.force_authenticate(user=self.staff_user)
 
     headers = [
         "text",
@@ -646,6 +686,41 @@ class QuestionBulkImportTests(APITestCase):
         self.assertEqual(response.data["imported_count"], 1)
         self.assertEqual(Question.objects.count(), 1)
         self.assertEqual(Question.objects.first().correct_answer, "Python")
+
+    def test_anonymous_user_cannot_import_questions(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.post(
+            self.url,
+            {"file": self.make_csv([self.valid_mcq_row()])},
+            format="multipart",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.assertEqual(Question.objects.count(), 0)
+
+    def test_non_staff_user_cannot_import_questions(self):
+        student = get_user_model().objects.create_user(
+            username="import_student",
+            password="test-password-123",
+            is_staff=False,
+        )
+        self.client.force_authenticate(user=student)
+
+        response = self.client.post(
+            self.url,
+            {"file": self.make_csv([self.valid_mcq_row()])},
+            format="multipart",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.assertEqual(Question.objects.count(), 0)
 
     def test_reject_invalid_row_without_saving_any_questions(self):
         valid_row = self.valid_mcq_row()
@@ -862,6 +937,13 @@ class QuestionBulkImportTests(APITestCase):
 
 class QuestionDetailAPITests(APITestCase):
     def setUp(self):
+        self.staff_user = get_user_model().objects.create_user(
+            username="detail_staff",
+            password="test-password-123",
+            is_staff=True,
+        )
+        self.client.force_authenticate(user=self.staff_user)
+
         from exam_management.models import Exam, ExamQuestion
 
         self.Exam = Exam
@@ -1027,3 +1109,98 @@ class QuestionDetailAPITests(APITestCase):
             status.HTTP_400_BAD_REQUEST,
         )
         self.assertIn("published or live exam", response.data["detail"])
+
+    def test_anonymous_user_cannot_retrieve_question_detail(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.get(self.detail_url())
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.assertNotIn(b"A Python web framework", response.content)
+
+    def test_non_staff_user_cannot_retrieve_question_detail(self):
+        student = get_user_model().objects.create_user(
+            username="detail_student",
+            password="test-password-123",
+            is_staff=False,
+        )
+        self.client.force_authenticate(user=student)
+
+        response = self.client.get(self.detail_url())
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.assertNotIn(b"A Python web framework", response.content)
+
+    def test_non_staff_user_cannot_edit_question(self):
+        student = get_user_model().objects.create_user(
+            username="detail_student_edit",
+            password="test-password-123",
+            is_staff=False,
+        )
+        self.client.force_authenticate(user=student)
+
+        response = self.client.patch(
+            self.detail_url(),
+            {"text": "Unauthorized edit"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.text, "What is Django?")
+
+    def test_anonymous_user_cannot_edit_question(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.patch(
+            self.detail_url(),
+            {"text": "Unauthorized edit"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.text, "What is Django?")
+
+    def test_anonymous_user_cannot_delete_question(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.delete(self.detail_url())
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.assertTrue(
+            Question.objects.filter(pk=self.question.pk).exists()
+        )
+
+    def test_non_staff_user_cannot_delete_question(self):
+        student = get_user_model().objects.create_user(
+            username="detail_student_delete",
+            password="test-password-123",
+            is_staff=False,
+        )
+        self.client.force_authenticate(user=student)
+
+        response = self.client.delete(self.detail_url())
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.assertTrue(
+            Question.objects.filter(pk=self.question.pk).exists()
+        )

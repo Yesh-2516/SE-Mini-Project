@@ -4,7 +4,7 @@ import csv
 from django.db import transaction
 from django.http import HttpResponse
 from rest_framework import generics, status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 
@@ -40,6 +40,8 @@ class QuestionListCreateView(generics.ListCreateAPIView):
         return queryset
 
 
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
 def download_question_template(request):
     response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = (
@@ -70,6 +72,7 @@ def download_question_template(request):
 
 
 @api_view(["POST"])
+@permission_classes([IsAdminUser])
 def import_questions(request):
     uploaded_file = request.FILES.get("file")
 
@@ -123,6 +126,7 @@ def import_questions(request):
 class QuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = QuestionSerializer
     queryset = Question.objects.all()
+    permission_classes = [IsAdminUser]
 
     def _is_locked(self, question):
         return question.exams.filter(
