@@ -1,7 +1,9 @@
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q
 from rest_framework import serializers
+from rest_framework.authtoken.models import Token
 
 from accounts.models import User, normalize_email, normalize_roll_number
 
@@ -165,3 +167,121 @@ class LoginSerializer(serializers.Serializer):
 
         attrs["identifier"] = identifier
         return attrs
+
+
+MANAGED_ROLES = (User.Role.FACULTY, User.Role.STUDENT)
+
+
+class ManagedAccountSerializer(serializers.ModelSerializer):
+    """Faculty/Student account as created and edited by an Admin."""
+
+    username = serializers.CharField(
+        max_length=150,
+        required=False,
+        allow_blank=True,
+        validators=[UnicodeUsernameValidator()],
+    )
+    email = serializers.EmailField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+    roll_number = serializers.CharField(
+        max_length=30,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+    role = serializers.ChoiceField(
+        choices=[(role.value, role.label) for role in MANAGED_ROLES],
+    )
+    password = serializers.CharField(
+        write_only=True,
+        required=False,
+        trim_whitespace=False,
+        style={"input_type": "password"},
+    )
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "email",
+            "roll_number",
+            "first_name",
+            "last_name",
+            "role",
+            "is_active",
+            "password",
+            "date_joined",
+            "last_login",
+        ]
+        read_only_fields = ["id", "is_active", "date_joined", "last_login"]
+
+    def _current(self, attrs, field):
+        if field in attrs:
+            return attrs[field]
+        return getattr(self.instance, field, None)
+
+    def validate(self, attrs):
+        email = normalize_email(self._current(attrs, "email"))
+        roll_number = normalize_roll_number(self._current(attrs, "roll_number"))
+
+        if not email and not roll_number:
+            raise serializers.ValidationError({
+                "non_field_errors": ["Provide an email or a roll number."]
+            })
+
+        username = (self._current(attrs, "username") or "").strip()
+        if not username:
+            username = email or roll_number.lower()
+
+        password = attrs.get("password")
+        if self.instance is None and not password:
+            raise serializers.ValidationError({
+                "password": ["A password is required for new accounts."]
+            })
+
+        check_unique_identity(
+            email=email,
+            roll_number=roll_number,
+            username=username,
+            exclude_pk=getattr(self.instance, "pk", None),
+        )
+
+        if password:
+            candidate = User(
+                username=username,
+                email=email,
+                roll_number=roll_number,
+                first_name=self._current(attrs, "first_name") or "",
+                last_name=self._current(attrs, "last_name") or "",
+            )
+            check_password_policy(password, candidate)
+
+        attrs["email"] = email
+        attrs["roll_number"] = roll_number
+        attrs["username"] = username
+        return attrs
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+        return User.objects.create_user(password=password, **validated_data)
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop("password", None)
+
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+
+        if password:
+            instance.set_password(password)
+
+        instance.save()
+
+        if password:
+            # A reset password signs the account out everywhere.
+            Token.objects.filter(user=instance).delete()
+
+        return instance
