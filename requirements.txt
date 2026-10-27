@@ -1,5 +1,6 @@
 
 Django==5.2.18
+argon2-cffi==25.1.0
 djangorestframework==3.18.3
 psycopg[binary]==3.3.6
 pytest==9.1.1

@@ -86,6 +86,14 @@ DATABASES = {
 
 AUTH_USER_MODEL = 'accounts.User'
 
+# OEP-SR-002: new passwords are hashed with Argon2. PBKDF2 stays listed only
+# so any existing hashes still verify; they are re-hashed with Argon2 on the
+# user's next successful login.
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.Argon2PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',
+]
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
