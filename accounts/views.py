@@ -111,6 +111,14 @@ class LoginView(APIView):
             user=user,
         )
 
+        from accounts.audit import record_audit_event
+        record_audit_event(
+            "login.success",
+            actor=user,
+            description="User logged in successfully",
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
+
         return Response({
             "token": token.key,
             "role": user.role,
@@ -171,7 +179,19 @@ class ManagedAccountListCreateView(ManagedAccountMixin, generics.ListCreateAPIVi
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        return self.validate_and_save(serializer, status.HTTP_201_CREATED)
+        response = self.validate_and_save(
+            serializer, status.HTTP_201_CREATED
+        )
+        if response.status_code == status.HTTP_201_CREATED:
+            from accounts.audit import record_audit_event
+            record_audit_event(
+                "account.created",
+                actor=request.user,
+                description="Admin created an account",
+                metadata={"role": response.data.get("role", "")},
+                ip_address=request.META.get("REMOTE_ADDR"),
+            )
+        return response
 
 
 @method_decorator(sensitive_post_parameters("password"), name="dispatch")
@@ -184,7 +204,18 @@ class ManagedAccountDetailView(ManagedAccountMixin, generics.RetrieveUpdateAPIVi
             data=request.data,
             partial=kwargs.get("partial", False),
         )
-        return self.validate_and_save(serializer, status.HTTP_200_OK)
+        response = self.validate_and_save(
+            serializer, status.HTTP_200_OK
+        )
+        if response.status_code == status.HTTP_200_OK:
+            from accounts.audit import record_audit_event
+            record_audit_event(
+                "account.updated",
+                actor=request.user,
+                description="Admin updated an account",
+                ip_address=request.META.get("REMOTE_ADDR"),
+            )
+        return response
 
 
 class SetAccountActiveView(ManagedAccountMixin, APIView):
@@ -200,5 +231,17 @@ class SetAccountActiveView(ManagedAccountMixin, APIView):
 
         if not self.is_active:
             Token.objects.filter(user=user).delete()
+
+        from accounts.audit import record_audit_event
+        record_audit_event(
+            "account.activated" if self.is_active else "account.deactivated",
+            actor=request.user,
+            description="Admin changed account active status",
+            metadata={
+                "target_user_id": user.pk,
+                "is_active": self.is_active,
+            },
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
 
         return Response(ManagedAccountSerializer(user).data)

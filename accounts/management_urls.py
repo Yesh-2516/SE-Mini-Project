@@ -28,3 +28,10 @@ urlpatterns = [
         name="admin-user-activate",
     ),
 ]
+
+
+from accounts.audit_views import AuditLogListView
+
+urlpatterns += [
+    path("audit-logs/", AuditLogListView.as_view(), name="admin-audit-logs"),
+]

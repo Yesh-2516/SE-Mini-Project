@@ -56,3 +56,7 @@ def normalize_roll_number(value):
     if value is None or not value.strip():
         return None
     return value.strip().upper()
+
+
+# Audit events are defined separately to keep this file manageable.
+from accounts.audit_models import AuditLog
