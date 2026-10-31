@@ -23,7 +23,6 @@ class ExamAlreadyAttempted(PermissionDenied):
     default_code = "exam_already_attempted"
 
 
-@transaction.atomic
 def start_exam_attempt(*, exam, student, now=None):
     """Start or resume a student's exam attempt.
 
@@ -33,8 +32,8 @@ def start_exam_attempt(*, exam, student, now=None):
     """
     now = now or timezone.now()
 
-    if not is_exam_open(exam, now):
-        raise ExamNotOpen()
+    if getattr(student, "role", None) != "STUDENT":
+        raise PermissionDenied("Only students can start an exam attempt.")
 
     existing_attempt = (
         Attempt.objects.filter(exam=exam, student=student)
@@ -55,47 +54,57 @@ def start_exam_attempt(*, exam, student, now=None):
                 if not existing_attempt.allow_reattempt:
                     raise ExamAlreadyAttempted()
             else:
-                # Resume current in-progress sitting
+                # An already-started attempt remains resumable even after the
+                # exam's admission window closes; its own deadline still applies.
                 return existing_attempt, False
 
         elif not existing_attempt.allow_reattempt:
             raise ExamAlreadyAttempted()
 
-    # Calculate server deadline
-    candidate_end = now + timedelta(minutes=exam.duration_minutes)
-    ends_at = candidate_end
-    if exam.availability_end and exam.availability_end < candidate_end:
-        ends_at = exam.availability_end
+    # The availability window governs creation, not resumption.
+    if not is_exam_open(exam, now):
+        raise ExamNotOpen()
 
-    attempt = Attempt.objects.create(
-        exam=exam,
-        student=student,
-        status=Attempt.Status.IN_PROGRESS,
-        started_at=now,
-        ends_at=ends_at,
-    )
+    with transaction.atomic():
+        # Calculate server deadline
+        candidate_end = now + timedelta(minutes=exam.duration_minutes)
+        ends_at = candidate_end
+        if exam.availability_end and exam.availability_end < candidate_end:
+            ends_at = exam.availability_end
 
-    exam_questions = exam.exam_questions.select_related("question").order_by("position")
-    responses = [
-        Response(
-            attempt=attempt,
-            question=eq.question,
-            submitted_answer="",
-            is_flagged=False,
+        attempt = Attempt.objects.create(
+            exam=exam,
+            student=student,
+            status=Attempt.Status.IN_PROGRESS,
+            started_at=now,
+            ends_at=ends_at,
         )
-        for eq in exam_questions
-    ]
-    Response.objects.bulk_create(responses)
 
-    return attempt, True
+        if existing_attempt is not None and existing_attempt.allow_reattempt:
+            existing_attempt.allow_reattempt = False
+            existing_attempt.save(update_fields=["allow_reattempt", "updated_at"])
+
+        exam_questions = exam.exam_questions.select_related("question").order_by("position")
+        responses = [
+            Response(
+                attempt=attempt,
+                question=eq.question,
+                submitted_answer="",
+                is_flagged=False,
+            )
+            for eq in exam_questions
+        ]
+        Response.objects.bulk_create(responses)
+
+        return attempt, True
 
 
 def get_attempt_detail(*, attempt, student, now=None):
     """Return attempt details, questions, timer, and saved answers for student."""
     now = now or timezone.now()
 
-    if attempt.student_id != student.id and getattr(student, "role", None) not in ("ADMIN", "FACULTY"):
-        raise PermissionDenied("You do not have access to this exam attempt.")
+    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
+        raise PermissionDenied("Only the student who owns this attempt can access it.")
 
     # Check for timeout auto-submit
     if attempt.status == Attempt.Status.IN_PROGRESS and attempt.is_expired(now):
@@ -161,8 +170,8 @@ def get_attempt_timer(*, attempt, student, now=None):
     """Return server-synchronized countdown timer status."""
     now = now or timezone.now()
 
-    if attempt.student_id != student.id and getattr(student, "role", None) not in ("ADMIN", "FACULTY"):
-        raise PermissionDenied("You do not have access to this exam timer.")
+    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
+        raise PermissionDenied("Only the student who owns this attempt can access its timer.")
 
     if attempt.status == Attempt.Status.IN_PROGRESS and attempt.is_expired(now):
         submit_attempt(
@@ -184,13 +193,12 @@ def get_attempt_timer(*, attempt, student, now=None):
     }
 
 
-@transaction.atomic
 def autosave_responses(*, attempt, student, responses_data, now=None):
     """Save responses periodically during the exam (OEP-F-035)."""
     now = now or timezone.now()
 
-    if attempt.student_id != student.id:
-        raise PermissionDenied("You cannot save responses for another student's attempt.")
+    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
+        raise PermissionDenied("Only the student who owns this attempt can save responses.")
 
     if attempt.status != Attempt.Status.IN_PROGRESS:
         raise AttemptAlreadyClosed("Cannot autosave: attempt is already submitted or closed.")
@@ -207,36 +215,37 @@ def autosave_responses(*, attempt, student, responses_data, now=None):
     if not isinstance(responses_data, list):
         raise ValidationError({"responses": "Expected a list of response objects."})
 
-    responses_by_question_id = {
-        resp.question_id: resp
-        for resp in attempt.responses.select_for_update()
-    }
+    with transaction.atomic():
+        responses_by_question_id = {
+            resp.question_id: resp
+            for resp in attempt.responses.select_for_update()
+        }
 
-    updated_count = 0
-    for item in responses_data:
-        if not isinstance(item, dict):
-            continue
-        qid = item.get("question_id")
-        if qid not in responses_by_question_id:
-            continue
+        updated_count = 0
+        for item in responses_data:
+            if not isinstance(item, dict):
+                continue
+            qid = item.get("question_id")
+            if qid not in responses_by_question_id:
+                raise ValidationError({"question_id": f"Question {qid} is not part of this exam attempt."})
 
-        resp = responses_by_question_id[qid]
-        changed = False
+            resp = responses_by_question_id[qid]
+            changed = False
 
-        if "submitted_answer" in item and item["submitted_answer"] is not None:
-            resp.submitted_answer = str(item["submitted_answer"])
-            changed = True
-        elif "answer" in item and item["answer"] is not None:
-            resp.submitted_answer = str(item["answer"])
-            changed = True
+            if "submitted_answer" in item and item["submitted_answer"] is not None:
+                resp.submitted_answer = str(item["submitted_answer"])
+                changed = True
+            elif "answer" in item and item["answer"] is not None:
+                resp.submitted_answer = str(item["answer"])
+                changed = True
 
-        if "is_flagged" in item and item["is_flagged"] is not None:
-            resp.is_flagged = bool(item["is_flagged"])
-            changed = True
+            if "is_flagged" in item and item["is_flagged"] is not None:
+                resp.is_flagged = bool(item["is_flagged"])
+                changed = True
 
-        if changed:
-            resp.save(update_fields=["submitted_answer", "is_flagged", "updated_at"])
-            updated_count += 1
+            if changed:
+                resp.save(update_fields=["submitted_answer", "is_flagged", "updated_at"])
+                updated_count += 1
 
     return {
         "status": "saved",
@@ -255,8 +264,11 @@ def submit_attempt(*, attempt, student, responses_data=None, reason="manual", no
     """
     now = now or timezone.now()
 
-    if attempt.student_id != student.id and getattr(student, "role", None) not in ("ADMIN", "FACULTY"):
-        raise PermissionDenied("You cannot submit another student's attempt.")
+    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
+        raise PermissionDenied("Only the student who owns this attempt can submit it.")
+
+    if attempt.status == Attempt.Status.IN_PROGRESS and attempt.is_expired(now):
+        reason = Attempt.SubmissionReason.TIMEOUT
 
     # Idempotent handling (OEP-NF-002)
     if attempt.status == Attempt.Status.SUBMITTED:
@@ -280,14 +292,15 @@ def submit_attempt(*, attempt, student, responses_data=None, reason="manual", no
             if not isinstance(item, dict):
                 continue
             qid = item.get("question_id")
-            if qid in responses_by_question_id:
-                resp = responses_by_question_id[qid]
-                ans = item.get("submitted_answer", item.get("answer"))
-                if ans is not None:
-                    resp.submitted_answer = str(ans)
-                if "is_flagged" in item and item["is_flagged"] is not None:
-                    resp.is_flagged = bool(item["is_flagged"])
-                resp.save(update_fields=["submitted_answer", "is_flagged", "updated_at"])
+            if qid not in responses_by_question_id:
+                raise ValidationError({"question_id": f"Question {qid} is not part of this exam attempt."})
+            resp = responses_by_question_id[qid]
+            ans = item.get("submitted_answer", item.get("answer"))
+            if ans is not None:
+                resp.submitted_answer = str(ans)
+            if "is_flagged" in item and item["is_flagged"] is not None:
+                resp.is_flagged = bool(item["is_flagged"])
+            resp.save(update_fields=["submitted_answer", "is_flagged", "updated_at"])
 
     submission_reason = (
         Attempt.SubmissionReason.TIMEOUT
@@ -354,8 +367,8 @@ def submit_attempt(*, attempt, student, responses_data=None, reason="manual", no
 
 def toggle_question_flag(*, attempt, student, question_id, is_flagged=None):
     """Toggle or set the flag on a question for review (OEP-F-031)."""
-    if attempt.student_id != student.id:
-        raise PermissionDenied("You cannot flag questions on another student's attempt.")
+    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
+        raise PermissionDenied("Only the student who owns this attempt can flag questions.")
 
     if attempt.status != Attempt.Status.IN_PROGRESS:
         raise AttemptAlreadyClosed("Attempt is already closed.")
@@ -380,8 +393,8 @@ def get_question_navigator(*, attempt, student, now=None):
     """Return overview of all questions with answered/flagged status (OEP-F-031)."""
     now = now or timezone.now()
 
-    if attempt.student_id != student.id and getattr(student, "role", None) not in ("ADMIN", "FACULTY"):
-        raise PermissionDenied("You do not have access to this exam attempt.")
+    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
+        raise PermissionDenied("Only the student who owns this attempt can access its navigator.")
 
     exam_questions = (
         attempt.exam.exam_questions.select_related("question")
