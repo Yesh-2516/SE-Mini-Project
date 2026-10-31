@@ -221,7 +221,11 @@ class AdminDiagnosticsView(APIView):
             try:
                 metrics[metric_name] = query()
             except Exception:
-                db_status = "degraded"
+                # Preserve the stronger connectivity failure state. A failed
+                # metric query after the probe already marked the database
+                # unreachable must not downgrade it to merely degraded.
+                if db_status != "unreachable":
+                    db_status = "degraded"
                 errors.append(metric_name)
                 logger.exception("Admin diagnostics metric query failed: %s", metric_name)
 
