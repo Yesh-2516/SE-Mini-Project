@@ -164,6 +164,28 @@ Supported question types: `MCQ`, `TRUE_FALSE`, `FILL_IN_THE_BLANK`, `SHORT_ANSWE
 | POST | `/api/exams/<id>/generate/` | Faculty, Admin | Auto-generate by subject, topic and difficulty counts |
 | PATCH | `/api/exams/<id>/questions/<question_id>/marks/` | Faculty, Admin | Set marks for one question |
 
+**Exam Delivery & Sitting**: `/api/exams/<id>/`
+
+Exam-sitting endpoints are restricted to authenticated students. A student may access only their own attempt. Faculty/admin users manage exams through the exam-management endpoints; they cannot start, autosave, flag, or submit a student sitting. If an autosave or start request detects an expired attempt, timeout submission is committed before the API returns the corresponding error. A manual submit received at or after `ends_at` is recorded with submission reason `TIMEOUT`. Re-attempt permission is consumed when the next attempt is successfully created.
+
+| Method | Path | Who | Purpose |
+|---|---|---|---|
+| POST | `/api/exams/<id>/start/` | Student | Start sitting or resume in-progress exam (returns paper & timer) |
+| GET | `/api/exams/<id>/attempts/<attempt_id>/` | Student (own attempt) | View current sitting paper with saved answers |
+| GET | `/api/exams/<id>/attempts/<attempt_id>/timer/` | Student | Server-synchronized countdown timer |
+| PUT, POST | `/api/exams/<id>/attempts/<attempt_id>/autosave/` | Student | Periodically autosave answers mid-exam |
+| POST | `/api/exams/<id>/attempts/<attempt_id>/submit/` | Student | Submit exam manually or on timeout (triggers objective auto-grading) |
+| POST, PATCH | `/api/exams/<id>/attempts/<attempt_id>/questions/<question_id>/flag/` | Student | Toggle bookmark flag for question review |
+| GET | `/api/exams/<id>/attempts/<attempt_id>/navigator/` | Student | Question status overview (answered & flagged counts) |
+| POST | `/api/exams/<id>/attempts/<attempt_id>/allow-reattempt/` | Faculty, Admin | Explicitly permit a student to reattempt the exam |
+
+**System Diagnostics**: `/api/admin/diagnostics/`
+
+| Method | Path | Who | Purpose |
+|---|---|---|---|
+| GET | `/api/admin/diagnostics/` | Admin | Check server health, database connectivity, and platform metrics |
+
+
 ## Project status
 
 Sprint 1 features merged into `main`:
@@ -173,11 +195,13 @@ Sprint 1 features merged into `main`:
 | Authentication & access control | OEP-F-001 registration, OEP-F-002 login, OEP-F-003 role-based access, OEP-SR-002 Argon2 hashing |
 | Question bank | OEP-F-010 add questions, OEP-F-011 tagging and filtering, OEP-F-012 bulk import, OEP-F-013 edit/delete with exam lock |
 | Exam creation | OEP-F-020 assembly (manual or rule-based), OEP-F-021 duration and scoring, OEP-F-022 availability window |
-| Evaluation | OEP-F-040 objective-answer grading function (not yet wired to submissions) |
-| Administration | OEP-F-060 account management, OEP-F-061 courses and mappings |
+| Exam delivery | OEP-F-030 server-synced timer, OEP-F-031 question navigation & flags, OEP-F-032 auto-submit on timeout, OEP-F-033 manual submit, OEP-F-034 single-attempt rule & reattempt, OEP-F-035 periodic autosave |
+| Evaluation | OEP-F-040 objective-answer automatic grading wired to submission |
+| Administration | OEP-F-060 account management, OEP-F-061 courses and mappings, OEP-F-063 health diagnostics panel |
+| Non-Functional | OEP-NF-001 concurrent exam-start performance test (2s P90 target; measured result must be recorded), OEP-NF-002 persisted-response/session-replacement and idempotent-submit tests, OEP-NF-003 health-probe simulation (not proof of 99% scheduled-window uptime) |
 | Security | OEP-SR-004 answer keys kept out of student exam data |
 
-Still to come include publishing exams to courses, the student exam screen with a server-synced timer, submissions and auto-submit, results and reports, account lockout and audit logging. See the [issues](https://github.com/Yesh-2516/SE-Mini-Project/issues) for the full backlog.
+Upcoming features include publishing exams to courses, subjective evaluation queue, results & scorecards, account lockout and audit logging. See the [issues](https://github.com/Yesh-2516/SE-Mini-Project/issues) for the full backlog.
 
 Implementation choices that differ from the SRS/SAD are recorded in [deviations.md](deviations.md).
 
@@ -189,6 +213,8 @@ SE-Mini-Project/
 ├── courses/           # Courses and Faculty/Student mappings
 ├── question_bank/     # Questions, tagging, bulk import, objective grading
 ├── exam_management/   # Exams, assembly, scoring settings, availability window
+├── exam_delivery/     # Exam sitting, server-synced timer, autosave, submission, diagnostics
+├── docs/              # Database models, performance and availability reports
 ├── config/            # Django settings and root URLs
 ├── deviations.md      # Deviations from the SRS/SAD and integration notes
 └── requirements.txt
@@ -210,3 +236,6 @@ Before opening a pull request, run `python -m pytest` and `python manage.py chec
 - [Software Requirements Specification](Software%20Requirements%20Specification.docx)
 - [Software Architecture and Design Specification](Software%20Architecture%20and%20Design%20Specification.docx)
 - [Software Test Plan](Software%20Test%20Plan.docx)
+- [Database Models Specification](docs/models.md)
+- [Performance Verification Report (TC-Perf-01)](docs/performance_report.md)
+- [Availability Verification Report (TC-Ops-01)](docs/availability_report.md)
