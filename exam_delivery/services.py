@@ -35,9 +35,6 @@ def start_exam_attempt(*, exam, student, now=None):
     if getattr(student, "role", None) != "STUDENT":
         raise PermissionDenied("Only students can start an exam attempt.")
 
-    if not is_exam_open(exam, now):
-        raise ExamNotOpen()
-
     existing_attempt = (
         Attempt.objects.filter(exam=exam, student=student)
         .order_by("-started_at")
@@ -57,11 +54,16 @@ def start_exam_attempt(*, exam, student, now=None):
                 if not existing_attempt.allow_reattempt:
                     raise ExamAlreadyAttempted()
             else:
-                # Resume current in-progress sitting
+                # An already-started attempt remains resumable even after the
+                # exam's admission window closes; its own deadline still applies.
                 return existing_attempt, False
 
         elif not existing_attempt.allow_reattempt:
             raise ExamAlreadyAttempted()
+
+    # The availability window governs creation, not resumption.
+    if not is_exam_open(exam, now):
+        raise ExamNotOpen()
 
     with transaction.atomic():
         # Calculate server deadline
@@ -101,8 +103,8 @@ def get_attempt_detail(*, attempt, student, now=None):
     """Return attempt details, questions, timer, and saved answers for student."""
     now = now or timezone.now()
 
-    if attempt.student_id != student.id:
-        raise PermissionDenied("You do not have access to this exam attempt.")
+    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
+        raise PermissionDenied("Only the student who owns this attempt can access it.")
 
     # Check for timeout auto-submit
     if attempt.status == Attempt.Status.IN_PROGRESS and attempt.is_expired(now):
@@ -168,8 +170,8 @@ def get_attempt_timer(*, attempt, student, now=None):
     """Return server-synchronized countdown timer status."""
     now = now or timezone.now()
 
-    if attempt.student_id != student.id:
-        raise PermissionDenied("You do not have access to this exam timer.")
+    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
+        raise PermissionDenied("Only the student who owns this attempt can access its timer.")
 
     if attempt.status == Attempt.Status.IN_PROGRESS and attempt.is_expired(now):
         submit_attempt(
@@ -391,8 +393,8 @@ def get_question_navigator(*, attempt, student, now=None):
     """Return overview of all questions with answered/flagged status (OEP-F-031)."""
     now = now or timezone.now()
 
-    if attempt.student_id != student.id:
-        raise PermissionDenied("You do not have access to this exam attempt.")
+    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
+        raise PermissionDenied("Only the student who owns this attempt can access its navigator.")
 
     exam_questions = (
         attempt.exam.exam_questions.select_related("question")

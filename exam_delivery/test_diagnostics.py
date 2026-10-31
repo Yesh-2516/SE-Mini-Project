@@ -84,3 +84,4 @@ class AdminDiagnosticsTests(APITestCase):
     def test_anonymous_user_cannot_access_diagnostics_panel(self):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotIn("secret", str(response.data).lower())

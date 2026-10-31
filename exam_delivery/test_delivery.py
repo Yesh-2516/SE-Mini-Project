@@ -465,6 +465,19 @@ class ReviewRegressionTests(ExamDeliveryBaseTestCase):
             ends_at=ends_at or self.now + timedelta(minutes=20),
         )
 
+    def test_existing_in_progress_attempt_can_resume_after_admission_window_closes(self):
+        attempt = self._create_attempt(ends_at=self.now + timedelta(minutes=10))
+        self.exam.availability_end = self.now - timedelta(minutes=1)
+        self.exam.save(update_fields=["availability_end"])
+        self.client.force_authenticate(user=self.student)
+
+        response = self.client.post(f"/api/exams/{self.exam.id}/start/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["attempt_id"], attempt.id)
+        self.assertFalse(response.data["is_new"])
+        self.assertEqual(Attempt.objects.filter(exam=self.exam, student=self.student).count(), 1)
+
     def test_expired_attempt_is_committed_as_timeout_when_start_is_rejected(self):
         attempt = self._create_attempt(ends_at=self.now - timedelta(seconds=1))
         self.client.force_authenticate(user=self.student)
