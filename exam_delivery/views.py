@@ -1,4 +1,5 @@
 import os
+import logging
 import platform
 import sys
 import time
@@ -32,6 +33,7 @@ from exam_delivery.services import (
 from exam_management.models import Exam
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 class StartExamAttemptView(APIView):
@@ -185,31 +187,53 @@ class AdminDiagnosticsView(APIView):
 
     def get(self, request):
         now = timezone.now()
-
-        # Database connectivity check
-        db_status = "error"
+        db_status = "connected"
         db_latency_ms = None
+        metrics = {
+            "active_attempts": None,
+            "total_exams": None,
+            "total_users": None,
+        }
+        errors = []
+
+        # Connectivity and metrics are guarded independently so one failed
+        # query cannot turn a degraded health response into an HTTP 500.
         try:
-            start_t = time.perf_counter()
+            started = time.perf_counter()
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1")
                 row = cursor.fetchone()
-            latency = (time.perf_counter() - start_t) * 1000
-            if row and row[0] == 1:
-                db_status = "connected"
-                db_latency_ms = round(latency, 2)
-        except Exception as e:
-            db_status = f"unreachable: {str(e)}"
+            db_latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            if not row or row[0] != 1:
+                raise RuntimeError("Database connectivity probe returned an unexpected result.")
+        except Exception:
+            db_status = "unreachable"
+            errors.append("connectivity")
+            logger.exception("Admin diagnostics database connectivity check failed")
 
-        active_attempts_count = Attempt.objects.filter(
-            status=Attempt.Status.IN_PROGRESS
-        ).count()
-        total_exams_count = Exam.objects.count()
-        total_users_count = User.objects.count()
+        metric_queries = {
+            "active_attempts": lambda: Attempt.objects.filter(
+                status=Attempt.Status.IN_PROGRESS
+            ).count(),
+            "total_exams": lambda: Exam.objects.count(),
+            "total_users": lambda: User.objects.count(),
+        }
+        for metric_name, query in metric_queries.items():
+            try:
+                metrics[metric_name] = query()
+            except Exception:
+                # Preserve the stronger connectivity failure state. A failed
+                # metric query after the probe already marked the database
+                # unreachable must not downgrade it to merely degraded.
+                if db_status != "unreachable":
+                    db_status = "degraded"
+                errors.append(metric_name)
+                logger.exception("Admin diagnostics metric query failed: %s", metric_name)
 
+        healthy = db_status == "connected" and not errors
         return Response(
             {
-                "status": "healthy" if db_status == "connected" else "degraded",
+                "status": "healthy" if healthy else "degraded",
                 "timestamp": now.isoformat(),
                 "server": {
                     "platform": platform.platform(),
@@ -222,11 +246,7 @@ class AdminDiagnosticsView(APIView):
                     "engine": settings.DATABASES["default"]["ENGINE"],
                     "latency_ms": db_latency_ms,
                 },
-                "metrics": {
-                    "active_attempts": active_attempts_count,
-                    "total_exams": total_exams_count,
-                    "total_users": total_users_count,
-                },
+                "metrics": metrics,
             },
             status=status.HTTP_200_OK,
         )
