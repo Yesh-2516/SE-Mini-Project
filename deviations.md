@@ -68,10 +68,10 @@
   - `GET /api/exams/<id>/attempts/<attempt_id>/navigator/` returns summary of total, answered, and flagged counts with per-question status.
 - **Periodic Response Auto-Save (OEP-F-035, TC-Deliver-06):**
   - `PUT /api/exams/<id>/attempts/<attempt_id>/autosave/` accepts batch answer updates atomically without closing attempt.
-  - Network disconnect / reconnect test confirms zero answer loss (`TC-Rel-01`).
+  - A client-session replacement test verifies that previously autosaved answers remain persisted (`TC-Rel-01`). It does not simulate a network-layer interruption.
 - **Health Diagnostics Panel (OEP-F-063, TC-Admin-04):**
   - Admin-only endpoint `GET /api/admin/diagnostics/` reports server operational status, database connectivity status, DB query latency, and live counts of active attempts, exams, and users.
 - **Non-Functional Requirements:**
-  - `TC-Perf-01` (OEP-NF-001): 200 concurrent student operations achieved P90 latency $\le$ 0.1s (well under the 2.0s limit).
-  - `TC-Rel-01` (OEP-NF-002): Zero response loss on simulated network interruption; idempotent submission verified.
-  - `TC-Ops-01` (OEP-NF-003): 100% availability observed across repeated diagnostic health probes.
+  - `TC-Perf-01` (OEP-NF-001): the test sends 200 exam-start requests through concurrent worker threads and reports P50/P90/P99 latency and error rate. No measured result is claimed until an actual test run is recorded.
+  - `TC-Rel-01` (OEP-NF-002): autosaved responses persist across client-session replacement; idempotent submission is verified. This is not a simulated network interruption.
+  - `TC-Ops-01` (OEP-NF-003): 100 consecutive probes provide a single-run health-check success rate only. Scheduled-window uptime requires timestamped monitoring evidence over the full observation period.

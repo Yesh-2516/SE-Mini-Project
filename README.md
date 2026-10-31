@@ -166,10 +166,12 @@ Supported question types: `MCQ`, `TRUE_FALSE`, `FILL_IN_THE_BLANK`, `SHORT_ANSWE
 
 **Exam Delivery & Sitting**: `/api/exams/<id>/`
 
+Exam-sitting endpoints are restricted to authenticated students. A student may access only their own attempt. Faculty/admin users manage exams through the exam-management endpoints; they cannot start, autosave, flag, or submit a student sitting. If an autosave or start request detects an expired attempt, timeout submission is committed before the API returns the corresponding error. A manual submit received at or after `ends_at` is recorded with submission reason `TIMEOUT`. Re-attempt permission is consumed when the next attempt is successfully created.
+
 | Method | Path | Who | Purpose |
 |---|---|---|---|
 | POST | `/api/exams/<id>/start/` | Student | Start sitting or resume in-progress exam (returns paper & timer) |
-| GET | `/api/exams/<id>/attempts/<attempt_id>/` | Student, Faculty, Admin | View current sitting paper with saved answers |
+| GET | `/api/exams/<id>/attempts/<attempt_id>/` | Student (own attempt) | View current sitting paper with saved answers |
 | GET | `/api/exams/<id>/attempts/<attempt_id>/timer/` | Student | Server-synchronized countdown timer |
 | PUT, POST | `/api/exams/<id>/attempts/<attempt_id>/autosave/` | Student | Periodically autosave answers mid-exam |
 | POST | `/api/exams/<id>/attempts/<attempt_id>/submit/` | Student | Submit exam manually or on timeout (triggers objective auto-grading) |
@@ -196,7 +198,7 @@ Sprint 1 features merged into `main`:
 | Exam delivery | OEP-F-030 server-synced timer, OEP-F-031 question navigation & flags, OEP-F-032 auto-submit on timeout, OEP-F-033 manual submit, OEP-F-034 single-attempt rule & reattempt, OEP-F-035 periodic autosave |
 | Evaluation | OEP-F-040 objective-answer automatic grading wired to submission |
 | Administration | OEP-F-060 account management, OEP-F-061 courses and mappings, OEP-F-063 health diagnostics panel |
-| Non-Functional | OEP-NF-001 performance (2s / 200 concurrent), OEP-NF-002 reliability (no answer loss on disconnect, idempotent submit), OEP-NF-003 availability (99% uptime) |
+| Non-Functional | OEP-NF-001 concurrent exam-start performance test (2s P90 target; measured result must be recorded), OEP-NF-002 persisted-response/session-replacement and idempotent-submit tests, OEP-NF-003 health-probe simulation (not proof of 99% scheduled-window uptime) |
 | Security | OEP-SR-004 answer keys kept out of student exam data |
 
 Upcoming features include publishing exams to courses, subjective evaluation queue, results & scorecards, account lockout and audit logging. See the [issues](https://github.com/Yesh-2516/SE-Mini-Project/issues) for the full backlog.

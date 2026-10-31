@@ -1,6 +1,10 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
+
+from exam_delivery.models import Attempt
 
 User = get_user_model()
 
@@ -32,29 +36,40 @@ class AdminDiagnosticsTests(APITestCase):
     def test_admin_can_access_health_diagnostics_panel(self):
         self.client.force_authenticate(user=self.admin)
         response = self.client.get(self.url)
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.data
-
         self.assertEqual(data["status"], "healthy")
         self.assertIn("timestamp", data)
-
-        # Server metrics
-        self.assertIn("server", data)
         self.assertEqual(data["server"]["status"], "operational")
         self.assertIn("python_version", data["server"])
         self.assertIn("django_version", data["server"])
-
-        # Database health
-        self.assertIn("database", data)
         self.assertEqual(data["database"]["status"], "connected")
         self.assertIsNotNone(data["database"]["latency_ms"])
-
-        # Metric counts
-        self.assertIn("metrics", data)
         self.assertIn("active_attempts", data["metrics"])
         self.assertIn("total_exams", data["metrics"])
         self.assertIn("total_users", data["metrics"])
+
+    def test_database_connectivity_failure_returns_generic_degraded_status(self):
+        self.client.force_authenticate(user=self.admin)
+        with patch("exam_delivery.views.connection.cursor", side_effect=Exception("secret host/password")):
+            response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "degraded")
+        self.assertEqual(response.data["database"]["status"], "unreachable")
+        self.assertNotIn("secret", str(response.data))
+        self.assertNotIn("password", str(response.data))
+
+    def test_metrics_query_failure_returns_degraded_status_without_exception_details(self):
+        self.client.force_authenticate(user=self.admin)
+        with patch.object(Attempt.objects, "filter", side_effect=Exception("private SQL detail")):
+            response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "degraded")
+        self.assertIsNone(response.data["metrics"]["active_attempts"])
+        self.assertNotIn("private SQL detail", str(response.data))
+        self.assertIsNotNone(response.data["metrics"]["total_exams"])
 
     def test_faculty_cannot_access_diagnostics_panel(self):
         self.client.force_authenticate(user=self.faculty)

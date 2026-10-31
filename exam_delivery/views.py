@@ -1,4 +1,4 @@
-import os
+import logging
 import platform
 import sys
 import time
@@ -8,7 +8,7 @@ from django.db import connection
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from accounts.permissions import IsStudent
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -32,12 +32,13 @@ from exam_delivery.services import (
 from exam_management.models import Exam
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 class StartExamAttemptView(APIView):
     """Start or resume a timed exam attempt (OEP-F-030, OEP-F-034)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def post(self, request, exam_id):
         exam = get_object_or_404(Exam, pk=exam_id)
@@ -57,7 +58,7 @@ class StartExamAttemptView(APIView):
 class AttemptDetailView(APIView):
     """Retrieve attempt paper, timer, and saved responses (OEP-F-030)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def get(self, request, exam_id, attempt_id):
         attempt = get_object_or_404(Attempt, pk=attempt_id, exam_id=exam_id)
@@ -71,7 +72,7 @@ class AttemptDetailView(APIView):
 class AttemptTimerView(APIView):
     """Return server-authoritative timer countdown (OEP-F-030)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def get(self, request, exam_id, attempt_id):
         attempt = get_object_or_404(Attempt, pk=attempt_id, exam_id=exam_id)
@@ -85,7 +86,7 @@ class AttemptTimerView(APIView):
 class AutosaveResponsesView(APIView):
     """Periodically auto-save responses mid-exam (OEP-F-035)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def put(self, request, exam_id, attempt_id):
         return self._handle_autosave(request, exam_id, attempt_id)
@@ -109,7 +110,7 @@ class AutosaveResponsesView(APIView):
 class SubmitExamAttemptView(APIView):
     """Submit exam attempt manually or on timeout (OEP-F-032, OEP-F-033)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def post(self, request, exam_id, attempt_id):
         attempt = get_object_or_404(Attempt, pk=attempt_id, exam_id=exam_id)
@@ -128,7 +129,7 @@ class SubmitExamAttemptView(APIView):
 class ToggleQuestionFlagView(APIView):
     """Flag or unflag a question for student review (OEP-F-031)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def post(self, request, exam_id, attempt_id, question_id):
         return self._handle_flag(request, exam_id, attempt_id, question_id)
@@ -153,7 +154,7 @@ class ToggleQuestionFlagView(APIView):
 class QuestionNavigatorView(APIView):
     """Return overview of all questions with status (OEP-F-031)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def get(self, request, exam_id, attempt_id):
         attempt = get_object_or_404(Attempt, pk=attempt_id, exam_id=exam_id)
@@ -185,31 +186,49 @@ class AdminDiagnosticsView(APIView):
 
     def get(self, request):
         now = timezone.now()
-
-        # Database connectivity check
-        db_status = "error"
+        db_status = "connected"
         db_latency_ms = None
+        metrics = {
+            "active_attempts": None,
+            "total_exams": None,
+            "total_users": None,
+        }
+        errors = []
+
+        # Connectivity and metrics are guarded independently so one failed
+        # query cannot turn a degraded health response into an HTTP 500.
         try:
-            start_t = time.perf_counter()
+            started = time.perf_counter()
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1")
                 row = cursor.fetchone()
-            latency = (time.perf_counter() - start_t) * 1000
-            if row and row[0] == 1:
-                db_status = "connected"
-                db_latency_ms = round(latency, 2)
-        except Exception as e:
-            db_status = f"unreachable: {str(e)}"
+            db_latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            if not row or row[0] != 1:
+                raise RuntimeError("Database connectivity probe returned an unexpected result.")
+        except Exception:
+            db_status = "unreachable"
+            errors.append("connectivity")
+            logger.exception("Admin diagnostics database connectivity check failed")
 
-        active_attempts_count = Attempt.objects.filter(
-            status=Attempt.Status.IN_PROGRESS
-        ).count()
-        total_exams_count = Exam.objects.count()
-        total_users_count = User.objects.count()
+        metric_queries = {
+            "active_attempts": lambda: Attempt.objects.filter(
+                status=Attempt.Status.IN_PROGRESS
+            ).count(),
+            "total_exams": lambda: Exam.objects.count(),
+            "total_users": lambda: User.objects.count(),
+        }
+        for metric_name, query in metric_queries.items():
+            try:
+                metrics[metric_name] = query()
+            except Exception:
+                db_status = "degraded"
+                errors.append(metric_name)
+                logger.exception("Admin diagnostics metric query failed: %s", metric_name)
 
+        healthy = db_status == "connected" and not errors
         return Response(
             {
-                "status": "healthy" if db_status == "connected" else "degraded",
+                "status": "healthy" if healthy else "degraded",
                 "timestamp": now.isoformat(),
                 "server": {
                     "platform": platform.platform(),
@@ -222,11 +241,7 @@ class AdminDiagnosticsView(APIView):
                     "engine": settings.DATABASES["default"]["ENGINE"],
                     "latency_ms": db_latency_ms,
                 },
-                "metrics": {
-                    "active_attempts": active_attempts_count,
-                    "total_exams": total_exams_count,
-                    "total_users": total_users_count,
-                },
+                "metrics": metrics,
             },
             status=status.HTTP_200_OK,
         )

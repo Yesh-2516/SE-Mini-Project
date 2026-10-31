@@ -3,7 +3,7 @@ import time
 from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import close_old_connections, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 from rest_framework import status
@@ -49,97 +49,66 @@ class NonFunctionalRequirementsTests(TransactionTestCase):
         )
 
     def test_tc_perf_01_performance_200_concurrent_requests(self):
-        """TC-Perf-01: Response time <= 2s under 200 requests (OEP-NF-001)."""
+        """Exercise 200 exam-start requests with genuine thread concurrency."""
         students = [
             User.objects.create_user(
                 username=f"perf_user_{i}",
                 password="StrongPassword123!",
                 role=User.Role.STUDENT,
             )
-            for i in range(50)
+            for i in range(200)
         ]
 
-        # Pre-create in-progress attempts for all students
-        attempts = []
-        for s in students:
-            att = Attempt.objects.create(
-                exam=self.exam,
-                student=s,
-                status=Attempt.Status.IN_PROGRESS,
-                started_at=self.now,
-                ends_at=self.now + timedelta(minutes=45),
-            )
-            Response.objects.create(
-                attempt=att,
-                question=self.question,
-                submitted_answer="",
-            )
-            attempts.append(att)
+        def start_exam(student):
+            # Django database connections are thread-local; do not share clients
+            # or connections between worker threads.
+            close_old_connections()
+            try:
+                client = APIClient()
+                client.force_authenticate(user=student)
+                started = time.perf_counter()
+                response = client.post(f"/api/exams/{self.exam.id}/start/")
+                elapsed = time.perf_counter() - started
+                return response.status_code, elapsed
+            finally:
+                close_old_connections()
 
-        latencies = []
+        worker_count = min(50, len(students))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+            results = list(executor.map(start_exam, students))
 
-        def execute_action(client, action_fn):
-            t0 = time.perf_counter()
-            res = action_fn()
-            t1 = time.perf_counter()
-            latencies.append(t1 - t0)
-            return res
+        statuses = [code for code, _ in results]
+        latencies = sorted(elapsed for _, elapsed in results)
+        failures = [code for code in statuses if code != status.HTTP_201_CREATED]
+        self.assertEqual(len(results), 200)
+        self.assertFalse(failures, f"Exam-start requests failed with statuses: {failures}")
 
-        def simulate_student_lifecycle(student, attempt):
-            client = APIClient()
-            client.force_authenticate(user=student)
+        def percentile(values, percentile_value):
+            index = max(0, min(len(values) - 1, int((percentile_value / 100) * len(values)) - 1))
+            return values[index]
 
-            # Request 1: Get attempt details / exam paper
-            res1 = execute_action(
-                client,
-                lambda: client.get(f"/api/exams/{self.exam.id}/attempts/{attempt.id}/"),
-            )
-            self.assertEqual(res1.status_code, status.HTTP_200_OK)
+        p50 = percentile(latencies, 50)
+        p90 = percentile(latencies, 90)
+        p99 = percentile(latencies, 99)
+        error_rate = len(failures) / len(results)
+        self.assertEqual(error_rate, 0.0)
+        if connection.vendor != "sqlite":
+            self.assertLessEqual(p90, 2.0, f"P90 exam-start latency was {p90:.4f}s")
+        else:
+            # SQLite serializes concurrent writes; its timing is useful as a
+            # smoke-test measurement, not as evidence for the production SLA.
+            print("PERF_NOTE SQLite backend detected; P90 SLA assertion requires the production database backend.")
 
-            # Request 2: Get timer status
-            res2 = execute_action(
-                client,
-                lambda: client.get(f"/api/exams/{self.exam.id}/attempts/{attempt.id}/timer/"),
-            )
-            self.assertEqual(res2.status_code, status.HTTP_200_OK)
-
-            # Request 3: Flag question navigator check
-            res3 = execute_action(
-                client,
-                lambda: client.get(f"/api/exams/{self.exam.id}/attempts/{attempt.id}/navigator/"),
-            )
-            self.assertEqual(res3.status_code, status.HTTP_200_OK)
-
-            # Request 4: Autosave response
-            res4 = execute_action(
-                client,
-                lambda: client.put(
-                    f"/api/exams/{self.exam.id}/attempts/{attempt.id}/autosave/",
-                    {"responses": [{"question_id": self.question.id, "submitted_answer": "20"}]},
-                    format="json",
-                ),
-            )
-            self.assertEqual(res4.status_code, status.HTTP_200_OK)
-
-        # Execute 50 students * 4 requests = 200 requests
-        for s, att in zip(students, attempts):
-            simulate_student_lifecycle(s, att)
-
-        self.assertEqual(len(latencies), 200)
-
-        latencies.sort()
-        p90_index = int(len(latencies) * 0.90)
-        p90_latency = latencies[p90_index]
-
-        # Requirement: 90th percentile <= 2.0s
-        self.assertLessEqual(
-            p90_latency,
-            2.0,
-            f"P90 response time was {p90_latency:.4f}s, exceeding 2.0s limit.",
+        # Store actual run measurements in test output for reproducible reports.
+        print(
+            "PERF_METRICS "
+            f"requests={len(results)} workers={worker_count} "
+            f"p50={p50:.6f}s p90={p90:.6f}s p99={p99:.6f}s "
+            f"error_rate={error_rate:.4%}"
         )
 
     def test_tc_rel_01_reliability_no_response_loss_on_disconnect(self):
-        """TC-Rel-01: Zero response loss on network disconnect, idempotent submit (OEP-NF-002)."""
+        """TC-Rel-01: Persistence across client-session replacement; not a network fault test."""
         student = User.objects.create_user(
             username="rel_student",
             password="StrongPassword123!",
@@ -159,7 +128,7 @@ class NonFunctionalRequirementsTests(TransactionTestCase):
             format="json",
         )
 
-        # 3. Simulate sudden network disconnect by discarding client session
+        # 3. Simulate client-session replacement. This does not interrupt the network.
         del client
         reconnected_client = APIClient()
         reconnected_client.force_authenticate(user=student)
@@ -194,22 +163,27 @@ class NonFunctionalRequirementsTests(TransactionTestCase):
         self.assertTrue(sub2.data["already_submitted"])
         self.assertEqual(sub1.data["submitted_at"], sub2.data["submitted_at"])
 
-    def test_tc_ops_01_availability_99_percent_uptime(self):
-        """TC-Ops-01: Health check availability >= 99% in exam windows (OEP-NF-003)."""
+    def test_tc_ops_01_availability_100_health_probe_simulation(self):
+        """Run 100 consecutive probes; this is not an uptime/SLA measurement."""
         client = APIClient()
         client.force_authenticate(user=self.admin)
-
         successful_probes = 0
         total_probes = 100
 
         for _ in range(total_probes):
-            res = client.get("/api/admin/diagnostics/")
-            if res.status_code == status.HTTP_200_OK and res.data.get("status") == "healthy":
+            response = client.get("/api/admin/diagnostics/")
+            if response.status_code == status.HTTP_200_OK and response.data.get("status") == "healthy":
                 successful_probes += 1
 
-        uptime_percentage = (successful_probes / total_probes) * 100.0
+        observed_probe_success = (successful_probes / total_probes) * 100.0
         self.assertGreaterEqual(
-            uptime_percentage,
+            observed_probe_success,
             99.0,
-            f"Observed availability was {uptime_percentage}%, below 99% requirement.",
+            f"Successful probe rate was {observed_probe_success:.1f}%.",
+        )
+        print(
+            "AVAILABILITY_PROBE_METRICS "
+            f"successful={successful_probes} total={total_probes} "
+            f"success_rate={observed_probe_success:.2f}% "
+            "observation_period=single_test_run"
         )
