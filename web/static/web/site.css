@@ -1,0 +1,40 @@
+.site-header {
+  background: #1f3a5f;
+  color: #fff;
+}
+
+.site-title {
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.site-title:hover,
+.site-title:focus {
+  color: #fff;
+  text-decoration: underline;
+}
+
+main:focus {
+  outline: none;
+}
+
+.exam-status {
+  background: #f1f4f8;
+  border: 1px solid #cfd6df;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.nav-question {
+  height: 2.75rem;
+  width: 2.75rem;
+}
+
+/* State is also spelled out in each button's accessible name. */
+.nav-question.is-flagged {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #9a5b00;
+}

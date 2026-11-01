@@ -1,0 +1,60 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}{{ exam.title }} - Online Exam Portal{% endblock %}
+
+{% block content %}
+<div id="exam-app"
+     data-exam-id="{{ exam.id }}"
+     data-csrf-token="{{ csrf_token }}"
+     data-dashboard-url="{% url 'web-dashboard' %}"
+     data-login-url="{% url 'web-login' %}">
+  <h1 class="h3 mb-3">{{ exam.title }}</h1>
+
+  <div id="exam-error" class="alert alert-danger" role="alert" hidden></div>
+
+  <section id="exam-intro">
+    <p>You will have up to {{ exam.duration_minutes }} minutes. The timer runs on the server, so it keeps counting if you close this page. Your answers save automatically.</p>
+    <button type="button" id="start-button" class="btn btn-primary">Start exam</button>
+  </section>
+
+  <section id="exam-sitting" hidden>
+    <div class="exam-status d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+      <div>Time left: <span id="timer" class="fw-bold fs-5" role="timer">--:--</span></div>
+      <div id="save-status" class="small" role="status"></div>
+    </div>
+    <div id="time-warning" class="visually-hidden" role="alert"></div>
+
+    <div class="row g-4">
+      <div class="col-lg-8">
+        <h2 id="question-heading" class="h5" tabindex="-1"></h2>
+        <p id="question-marks" class="small text-body-secondary"></p>
+        <div id="question-body"></div>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button type="button" id="previous-button" class="btn btn-outline-primary">Previous</button>
+          <button type="button" id="next-button" class="btn btn-outline-primary">Next</button>
+          <button type="button" id="flag-button" class="btn btn-outline-secondary" aria-pressed="false">Flag for review</button>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <nav aria-label="Questions">
+          <h2 class="h6">Questions</h2>
+          <div id="navigator" class="d-flex flex-wrap gap-2 mb-2"></div>
+        </nav>
+        <p id="progress" class="small"></p>
+        <button type="button" id="submit-button" class="btn btn-success w-100">Submit exam</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="exam-finished" hidden>
+    <h2 id="finished-heading" class="h5" tabindex="-1"></h2>
+    <p id="finished-message"></p>
+    <a class="btn btn-primary" href="{% url 'web-dashboard' %}">Back to dashboard</a>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'web/exam.js' %}"></script>
+{% endblock %}

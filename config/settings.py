@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'question_bank',
     'exam_management',
     'exam_delivery',
+    'web',
 ]
 
 MIDDLEWARE = [
@@ -106,6 +107,8 @@ PASSWORD_HASHERS = [
 AUTHENTICATION_BACKENDS = [
     'accounts.backends.EmailUsernameOrRollNumberBackend',
 ]
+
+LOGIN_URL = 'web-login'
 
 # Account lockout (OEP-F-004, OEP-SR-005).
 ACCOUNT_LOCKOUT_THRESHOLD = 5
