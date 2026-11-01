@@ -450,3 +450,249 @@ class PeriodicAutosaveTests(ExamDeliveryBaseTestCase):
         self.assertTrue(saved_questions[self.q_mcq.id]["is_flagged"])
         self.assertEqual(saved_questions[self.q_fib.id]["submitted_answer"], "three-tier")
         self.assertFalse(saved_questions[self.q_fib.id]["is_flagged"])
+
+
+class ReviewRegressionTests(ExamDeliveryBaseTestCase):
+    """Regression coverage for review feedback on exam delivery."""
+
+    def _create_attempt(self, student=None, ends_at=None):
+        student = student or self.student
+        attempt = Attempt.objects.create(
+            exam=self.exam,
+            student=student,
+            status=Attempt.Status.IN_PROGRESS,
+            started_at=self.now - timedelta(minutes=5),
+            ends_at=ends_at or self.now + timedelta(minutes=20),
+        )
+        exam_questions = self.exam.exam_questions.select_related("question").order_by("position")
+        Response.objects.bulk_create([
+            Response(
+                attempt=attempt,
+                question=eq.question,
+                submitted_answer="",
+                is_flagged=False,
+            )
+            for eq in exam_questions
+        ])
+        return attempt
+
+    def test_existing_in_progress_attempt_can_resume_after_admission_window_closes(self):
+        attempt = self._create_attempt(ends_at=self.now + timedelta(minutes=10))
+        self.exam.availability_end = self.now - timedelta(minutes=1)
+        self.exam.save(update_fields=["availability_end"])
+        self.client.force_authenticate(user=self.student)
+
+        response = self.client.post(f"/api/exams/{self.exam.id}/start/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["attempt_id"], attempt.id)
+        self.assertFalse(response.data["is_new"])
+        self.assertEqual(Attempt.objects.filter(exam=self.exam, student=self.student).count(), 1)
+
+    def test_expired_attempt_is_committed_as_timeout_when_start_is_rejected(self):
+        attempt = self._create_attempt(ends_at=self.now - timedelta(seconds=1))
+        self.client.force_authenticate(user=self.student)
+
+        response = self.client.post(f"/api/exams/{self.exam.id}/start/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, Attempt.Status.SUBMITTED)
+        self.assertEqual(attempt.submission_reason, Attempt.SubmissionReason.TIMEOUT)
+
+    def test_expired_autosave_commits_timeout_before_returning_error(self):
+        attempt = self._create_attempt(ends_at=self.now - timedelta(seconds=1))
+        self.client.force_authenticate(user=self.student)
+
+        response = self.client.put(
+            f"/api/exams/{self.exam.id}/attempts/{attempt.id}/autosave/",
+            {"responses": [{"question_id": self.q_mcq.id, "submitted_answer": "A"}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_410_GONE)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, Attempt.Status.SUBMITTED)
+        self.assertEqual(attempt.submission_reason, Attempt.SubmissionReason.TIMEOUT)
+
+    def test_manual_submission_after_deadline_is_recorded_as_timeout(self):
+        attempt = self._create_attempt(ends_at=self.now - timedelta(seconds=1))
+        self.client.force_authenticate(user=self.student)
+
+        response = self.client.post(
+            f"/api/exams/{self.exam.id}/attempts/{attempt.id}/submit/",
+            {"reason": "manual"}, format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.submission_reason, Attempt.SubmissionReason.TIMEOUT)
+
+    def test_student_cannot_access_another_students_attempt(self):
+        attempt = self._create_attempt(student=self.other_student)
+        self.client.force_authenticate(user=self.student)
+        response = self.client.get(f"/api/exams/{self.exam.id}/attempts/{attempt.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_faculty_cannot_start_or_autosave_student_attempt(self):
+        self.client.force_authenticate(user=self.faculty)
+        start_response = self.client.post(f"/api/exams/{self.exam.id}/start/")
+        self.assertEqual(start_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        attempt = self._create_attempt()
+        save_response = self.client.put(
+            f"/api/exams/{self.exam.id}/attempts/{attempt.id}/autosave/",
+            {"responses": []}, format="json",
+        )
+        self.assertEqual(save_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_student_only_role_is_enforced_across_all_sitting_endpoints(self):
+        attempt = self._create_attempt()
+        self.client.force_authenticate(user=self.faculty)
+        base = f"/api/exams/{self.exam.id}/attempts/{attempt.id}"
+        requests = [
+            self.client.get(f"{base}/"),
+            self.client.get(f"{base}/timer/"),
+            self.client.get(f"{base}/navigator/"),
+            self.client.put(f"{base}/autosave/", {"responses": []}, format="json"),
+            self.client.post(f"{base}/submit/", {}, format="json"),
+            self.client.post(
+                f"{base}/questions/{self.q_mcq.id}/flag/",
+                {"is_flagged": True}, format="json",
+            ),
+        ]
+        self.assertTrue(all(item.status_code == status.HTTP_403_FORBIDDEN for item in requests))
+
+    def test_student_cannot_read_or_mutate_another_students_attempt(self):
+        attempt = self._create_attempt(student=self.other_student)
+        self.client.force_authenticate(user=self.student)
+        base = f"/api/exams/{self.exam.id}/attempts/{attempt.id}"
+        requests = [
+            self.client.get(f"{base}/"),
+            self.client.get(f"{base}/timer/"),
+            self.client.get(f"{base}/navigator/"),
+            self.client.put(f"{base}/autosave/", {"responses": []}, format="json"),
+            self.client.post(f"{base}/submit/", {}, format="json"),
+            self.client.post(
+                f"{base}/questions/{self.q_mcq.id}/flag/",
+                {"is_flagged": True}, format="json",
+            ),
+        ]
+        self.assertTrue(all(item.status_code == status.HTTP_403_FORBIDDEN for item in requests))
+
+    def test_autosave_rejects_question_not_in_attempt(self):
+        attempt = self._create_attempt()
+        unrelated = Question.objects.create(
+            text="Unrelated question", question_type=Question.QuestionType.MCQ,
+            options=["A", "B"], correct_answer="A", subject="Other",
+            topic="Other", difficulty=Question.Difficulty.EASY,
+        )
+        self.client.force_authenticate(user=self.student)
+        response = self.client.put(
+            f"/api/exams/{self.exam.id}/attempts/{attempt.id}/autosave/",
+            {"responses": [{"question_id": unrelated.id, "submitted_answer": "A"}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_reattempt_permission_is_consumed_after_new_attempt_starts(self):
+        previous = self._create_attempt()
+        previous.status = Attempt.Status.SUBMITTED
+        previous.submitted_at = self.now
+        previous.submission_reason = Attempt.SubmissionReason.MANUAL
+        previous.allow_reattempt = True
+        previous.save()
+
+        self.client.force_authenticate(user=self.student)
+        response = self.client.post(f"/api/exams/{self.exam.id}/start/")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        previous.refresh_from_db()
+        self.assertFalse(previous.allow_reattempt)
+
+        second_response = self.client.post(f"/api/exams/{self.exam.id}/start/")
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.data["attempt_id"], response.data["attempt_id"])
+
+    def test_expired_submission_ignores_late_answers_and_grades_only_pre_saved_answers(self):
+        attempt = self._create_attempt(ends_at=self.now - timedelta(minutes=10))
+        # Pre-save an answer for q_mcq prior to deadline
+        mcq_resp = attempt.responses.get(question=self.q_mcq)
+        mcq_resp.submitted_answer = "Software Requirements Specification"  # correct answer
+        mcq_resp.save()
+
+        # Late submission sends an answer for q_tf after deadline
+        self.client.force_authenticate(user=self.student)
+        response = self.client.post(
+            f"/api/exams/{self.exam.id}/attempts/{attempt.id}/submit/",
+            {
+                "responses": [
+                    {"question_id": self.q_tf.id, "submitted_answer": "False"},
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, Attempt.Status.SUBMITTED)
+        self.assertEqual(attempt.submission_reason, Attempt.SubmissionReason.TIMEOUT)
+
+        # q_mcq (pre-saved) was scored
+        mcq_resp.refresh_from_db()
+        self.assertEqual(mcq_resp.submitted_answer, "Software Requirements Specification")
+        self.assertEqual(mcq_resp.marks_obtained, Decimal("2.00"))
+
+        # q_tf (late answer) was ignored and NOT saved or scored
+        tf_resp = attempt.responses.get(question=self.q_tf)
+        self.assertEqual(tf_resp.submitted_answer, "")
+        self.assertEqual(tf_resp.marks_obtained, Decimal("0.00"))
+        self.assertEqual(attempt.objective_score, Decimal("2.00"))
+
+    def test_client_cannot_forge_timeout_reason_on_ontime_submission(self):
+        attempt = self._create_attempt(ends_at=self.now + timedelta(minutes=30))
+        self.client.force_authenticate(user=self.student)
+        response = self.client.post(
+            f"/api/exams/{self.exam.id}/attempts/{attempt.id}/submit/",
+            {
+                "reason": "timeout",
+                "responses": [
+                    {"question_id": self.q_mcq.id, "submitted_answer": "Software Requirements Specification"}
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, Attempt.Status.SUBMITTED)
+        self.assertEqual(attempt.submission_reason, Attempt.SubmissionReason.MANUAL)
+        self.assertEqual(attempt.objective_score, Decimal("2.00"))
+
+    def test_submit_rejects_question_not_in_attempt(self):
+        attempt = self._create_attempt(ends_at=self.now + timedelta(minutes=30))
+        unrelated = Question.objects.create(
+            text="Unrelated question", question_type=Question.QuestionType.MCQ,
+            options=["A", "B"], correct_answer="A", subject="Other",
+            topic="Other", difficulty=Question.Difficulty.EASY,
+        )
+        self.client.force_authenticate(user=self.student)
+        response = self.client.post(
+            f"/api/exams/{self.exam.id}/attempts/{attempt.id}/submit/",
+            {"responses": [{"question_id": unrelated.id, "submitted_answer": "A"}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_diagnostics_security_does_not_disclose_database_exceptions(self):
+        admin = User.objects.create_user(
+            username="test_admin_diag_deliv",
+            email="admin_diag_deliv@test.edu",
+            password="StrongPassword123!",
+            role=User.Role.ADMIN,
+        )
+        self.client.force_authenticate(user=admin)
+        from unittest.mock import patch
+        with patch("exam_delivery.views.connection.cursor", side_effect=Exception("sensitive_db_password")):
+            response = self.client.get("/api/admin/diagnostics/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "degraded")
+        self.assertEqual(response.data["database"]["status"], "unreachable")
+        self.assertNotIn("sensitive_db_password", str(response.data))

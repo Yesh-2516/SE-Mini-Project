@@ -1,4 +1,3 @@
-import os
 import logging
 import platform
 import sys
@@ -9,11 +8,10 @@ from django.db import connection
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import IsAdmin, IsFacultyOrAdmin
+from accounts.permissions import IsAdmin, IsFacultyOrAdmin, IsStudent
 from exam_delivery.models import Attempt
 from exam_delivery.serializers import (
     AutosaveRequestSerializer,
@@ -39,7 +37,7 @@ logger = logging.getLogger(__name__)
 class StartExamAttemptView(APIView):
     """Start or resume a timed exam attempt (OEP-F-030, OEP-F-034)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def post(self, request, exam_id):
         exam = get_object_or_404(Exam, pk=exam_id)
@@ -59,7 +57,7 @@ class StartExamAttemptView(APIView):
 class AttemptDetailView(APIView):
     """Retrieve attempt paper, timer, and saved responses (OEP-F-030)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def get(self, request, exam_id, attempt_id):
         attempt = get_object_or_404(Attempt, pk=attempt_id, exam_id=exam_id)
@@ -73,7 +71,7 @@ class AttemptDetailView(APIView):
 class AttemptTimerView(APIView):
     """Return server-authoritative timer countdown (OEP-F-030)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def get(self, request, exam_id, attempt_id):
         attempt = get_object_or_404(Attempt, pk=attempt_id, exam_id=exam_id)
@@ -87,7 +85,7 @@ class AttemptTimerView(APIView):
 class AutosaveResponsesView(APIView):
     """Periodically auto-save responses mid-exam (OEP-F-035)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def put(self, request, exam_id, attempt_id):
         return self._handle_autosave(request, exam_id, attempt_id)
@@ -111,7 +109,7 @@ class AutosaveResponsesView(APIView):
 class SubmitExamAttemptView(APIView):
     """Submit exam attempt manually or on timeout (OEP-F-032, OEP-F-033)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def post(self, request, exam_id, attempt_id):
         attempt = get_object_or_404(Attempt, pk=attempt_id, exam_id=exam_id)
@@ -122,7 +120,6 @@ class SubmitExamAttemptView(APIView):
             attempt=attempt,
             student=request.user,
             responses_data=serializer.validated_data.get("responses"),
-            reason=serializer.validated_data.get("reason", "manual"),
         )
         return Response(result, status=status.HTTP_200_OK)
 
@@ -130,7 +127,7 @@ class SubmitExamAttemptView(APIView):
 class ToggleQuestionFlagView(APIView):
     """Flag or unflag a question for student review (OEP-F-031)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def post(self, request, exam_id, attempt_id, question_id):
         return self._handle_flag(request, exam_id, attempt_id, question_id)
@@ -155,7 +152,7 @@ class ToggleQuestionFlagView(APIView):
 class QuestionNavigatorView(APIView):
     """Return overview of all questions with status (OEP-F-031)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStudent]
 
     def get(self, request, exam_id, attempt_id):
         attempt = get_object_or_404(Attempt, pk=attempt_id, exam_id=exam_id)
@@ -222,9 +219,6 @@ class AdminDiagnosticsView(APIView):
             try:
                 metrics[metric_name] = query()
             except Exception:
-                # Preserve the stronger connectivity failure state. A failed
-                # metric query after the probe already marked the database
-                # unreachable must not downgrade it to merely degraded.
                 if db_status != "unreachable":
                     db_status = "degraded"
                 errors.append(metric_name)
