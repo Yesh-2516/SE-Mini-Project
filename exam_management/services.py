@@ -1,4 +1,4 @@
-
+import random
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -23,28 +23,59 @@ def is_exam_open(exam, now=None):
     return exam.availability_start <= now < exam.availability_end
 
 
-def get_student_exam_paper(*, exam, now=None):
+def shuffle_paper(questions, seed):
+    """Return a shuffled copy of a student paper's questions.
+
+    Question IDs and option text are preserved. Only MCQ options
+    are shuffled; True/False options remain in their standard order.
+    """
+    question_rng = random.Random(seed)
+    option_rng = random.Random(f"{seed}:options")
+
+    shuffled_questions = [dict(question) for question in questions]
+    question_rng.shuffle(shuffled_questions)
+
+    for question in shuffled_questions:
+        options = question.get("options", [])
+
+        if question.get("question_type") == Question.QuestionType.MCQ:
+            question["options"] = list(options)
+            option_rng.shuffle(question["options"])
+
+    for position, question in enumerate(shuffled_questions, start=1):
+        question["position"] = position
+
+    return shuffled_questions
+
+
+def get_student_exam_paper(*, exam, now=None, shuffle_seed=None):
     """Return an exam's questions as a student may see them (OEP-SR-004).
 
     Raises ExamNotOpen (403) outside the availability window. The result
     never contains correct answers. Callers still have to check that the
     student is allowed to sit this exam (publishing and course assignment).
     """
-
     if not is_exam_open(exam, now):
         raise ExamNotOpen()
 
     exam_questions = exam.exam_questions.select_related("question")
+
+    questions = list(
+        StudentExamQuestionSerializer(
+            exam_questions,
+            many=True,
+        ).data
+    )
+
+    if shuffle_seed is not None:
+        questions = shuffle_paper(questions, shuffle_seed)
 
     return {
         "exam_id": exam.id,
         "title": exam.title,
         "duration_minutes": exam.duration_minutes,
         "availability_end": exam.availability_end,
-        "questions": StudentExamQuestionSerializer(
-            exam_questions,
-            many=True,
-        ).data,
+        "questions": questions,
     }
 
 
