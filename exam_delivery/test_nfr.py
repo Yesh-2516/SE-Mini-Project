@@ -1,4 +1,7 @@
 import concurrent.futures
+import platform
+import sys
+import threading
 import time
 from datetime import timedelta
 from decimal import Decimal
@@ -65,6 +68,13 @@ class NonFunctionalRequirementsTests(TransactionTestCase):
             for i in range(200)
         ]
 
+        worker_count = len(students)
+        request_barrier = threading.Barrier(worker_count, timeout=120)
+        database_backend = connection.vendor
+        runner = platform.platform()
+        python_version = sys.version.split()[0]
+        test_date = timezone.now().isoformat()
+
         def start_exam(student):
             # Django database connections are thread-local; do not share clients
             # or connections between worker threads.
@@ -72,6 +82,8 @@ class NonFunctionalRequirementsTests(TransactionTestCase):
             try:
                 client = APIClient()
                 client.force_authenticate(user=student)
+                # Synchronize all workers before they send their requests.
+                request_barrier.wait()
                 started = time.perf_counter()
                 response = client.post(f"/api/exams/{self.exam.id}/start/")
                 elapsed = time.perf_counter() - started
@@ -79,7 +91,6 @@ class NonFunctionalRequirementsTests(TransactionTestCase):
             finally:
                 close_old_connections()
 
-        worker_count = min(50, len(students))
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
             results = list(executor.map(start_exam, students))
 
@@ -109,11 +120,14 @@ class NonFunctionalRequirementsTests(TransactionTestCase):
         print(
             "PERF_METRICS "
             f"requests={len(results)} workers={worker_count} "
+            f"database_backend={database_backend} "
+            f"runner={runner!r} python={python_version} "
+            f"test_date={test_date} "
             f"p50={p50:.6f}s p90={p90:.6f}s p99={p99:.6f}s "
             f"error_rate={error_rate:.4%}"
         )
 
-    def test_tc_rel_01_reliability_no_response_loss_on_disconnect(self):
+    def test_tc_rel_01_persistence_across_client_session_replacement(self):
         """TC-Rel-01: Persistence across client-session replacement; not a network fault test."""
         student = User.objects.create_user(
             username="rel_student",

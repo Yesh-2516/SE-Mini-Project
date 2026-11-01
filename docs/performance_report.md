@@ -7,13 +7,13 @@
 
 ## Method
 
-The test creates 200 distinct student accounts and submits `POST /api/exams/{exam_id}/start/` from a `ThreadPoolExecutor` with up to 50 worker threads. Each worker creates its own `APIClient` and uses a thread-local database connection. The test records each request's wall-clock latency and HTTP status.
+The test creates 200 distinct student accounts and submits `POST /api/exams/{exam_id}/start/` from a `ThreadPoolExecutor` with 200 worker threads. A synchronization barrier releases the workers together before they send their requests. Each worker creates its own `APIClient` and uses a thread-local database connection. The test records each request's wall-clock latency and HTTP status.
 
 The test reports P50, P90, P99, and error rate from the measured run. The P90 assertion is 2 seconds and all requests must return HTTP 201. The test prints a `PERF_METRICS` line containing the measured values so CI output can be retained as execution evidence.
 
 ## Results
 
-No measured values are stated in this document. Populate this section from the `PERF_METRICS` line produced by an actual run, including the database backend, host/runner, worker count, and test date. Results from SQLite and a developer laptop must not be represented as production capacity evidence.
+No measured values are stated in this document. Populate this section from the `PERF_METRICS` line produced by an actual run, including the database backend, host/runner, Python version, worker count, and test date. The test prints these metadata alongside the `PERF_METRICS` measurements. Results from SQLite and a developer laptop must not be represented as production capacity evidence.
 
 ## Limitations
 
