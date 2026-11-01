@@ -1,0 +1,54 @@
+from django.urls import path
+from exam_delivery.views import (
+    AllowReattemptView,
+    AttemptDetailView,
+    AttemptTimerView,
+    AutosaveResponsesView,
+    QuestionNavigatorView,
+    StartExamAttemptView,
+    SubmitExamAttemptView,
+    ToggleQuestionFlagView,
+)
+
+urlpatterns = [
+    path(
+        "<int:exam_id>/start/",
+        StartExamAttemptView.as_view(),
+        name="exam-attempt-start",
+    ),
+    path(
+        "<int:exam_id>/attempts/<int:attempt_id>/",
+        AttemptDetailView.as_view(),
+        name="exam-attempt-detail",
+    ),
+    path(
+        "<int:exam_id>/attempts/<int:attempt_id>/timer/",
+        AttemptTimerView.as_view(),
+        name="exam-attempt-timer",
+    ),
+    path(
+        "<int:exam_id>/attempts/<int:attempt_id>/autosave/",
+        AutosaveResponsesView.as_view(),
+        name="exam-attempt-autosave",
+    ),
+    path(
+        "<int:exam_id>/attempts/<int:attempt_id>/submit/",
+        SubmitExamAttemptView.as_view(),
+        name="exam-attempt-submit",
+    ),
+    path(
+        "<int:exam_id>/attempts/<int:attempt_id>/questions/<int:question_id>/flag/",
+        ToggleQuestionFlagView.as_view(),
+        name="exam-attempt-flag",
+    ),
+    path(
+        "<int:exam_id>/attempts/<int:attempt_id>/navigator/",
+        QuestionNavigatorView.as_view(),
+        name="exam-attempt-navigator",
+    ),
+    path(
+        "<int:exam_id>/attempts/<int:attempt_id>/allow-reattempt/",
+        AllowReattemptView.as_view(),
+        name="exam-attempt-allow-reattempt",
+    ),
+]

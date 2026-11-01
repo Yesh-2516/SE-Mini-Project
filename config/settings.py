@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'courses',
     'question_bank',
     'exam_management',
+    'exam_delivery',
 ]
 
 MIDDLEWARE = [
@@ -82,6 +83,9 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        'OPTIONS': {
+            'timeout': 30,
+        },
     }
 }
 

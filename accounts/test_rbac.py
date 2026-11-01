@@ -14,6 +14,17 @@ PUBLIC_ROUTES = {"auth-register", "auth-login"}
 # Routes any logged-in user may call, whatever their role.
 ANY_ROLE_ROUTES = {"auth-logout", "auth-me"}
 
+# Routes accessible to authenticated students for exam sitting (OEP-F-030 - OEP-F-035).
+STUDENT_EXAM_ROUTES = {
+    "exam-attempt-start",
+    "exam-attempt-detail",
+    "exam-attempt-timer",
+    "exam-attempt-autosave",
+    "exam-attempt-submit",
+    "exam-attempt-flag",
+    "exam-attempt-navigator",
+}
+
 
 def iter_api_routes(patterns=None, prefix=""):
     """Yield (route, url pattern) for every URL under /api/."""
@@ -96,7 +107,7 @@ class EndpointRegistryTests(APITestCase):
         self.client.force_authenticate(user=self.student)
 
         for route, pattern in iter_api_routes():
-            if pattern.name in PUBLIC_ROUTES | ANY_ROLE_ROUTES:
+            if pattern.name in PUBLIC_ROUTES | ANY_ROLE_ROUTES | STUDENT_EXAM_ROUTES:
                 continue
             path = concrete_path(route)
             for method in implemented_methods(view_class(pattern)):
