@@ -27,7 +27,22 @@ SECRET_KEY = 'django-insecure-i9yfhu@20lexp%q2vh*$8)zc+qbg8x+6c9pxstjeum&b1n*$5t
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',')
+    if host.strip()
+]
+
+
+# HTTPS (OEP-SR-001). Off for local development; deployments set
+# DJANGO_TLS_ENABLED=1 behind the proxy in deploy/nginx.conf, which terminates
+# TLS. See docs/tls_deployment.md.
+if os.environ.get('DJANGO_TLS_ENABLED', '').lower() in ('1', 'true'):
+    SECURE_SSL_REDIRECT = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_HSTS_SECONDS = 31536000
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 
 # Application definition
