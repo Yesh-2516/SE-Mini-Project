@@ -8,11 +8,10 @@ from django.db import connection
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from accounts.permissions import IsStudent
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import IsAdmin, IsFacultyOrAdmin
+from accounts.permissions import IsAdmin, IsFacultyOrAdmin, IsStudent
 from exam_delivery.models import Attempt
 from exam_delivery.serializers import (
     AutosaveRequestSerializer,
@@ -121,7 +120,6 @@ class SubmitExamAttemptView(APIView):
             attempt=attempt,
             student=request.user,
             responses_data=serializer.validated_data.get("responses"),
-            reason=serializer.validated_data.get("reason", "manual"),
         )
         return Response(result, status=status.HTTP_200_OK)
 
@@ -221,9 +219,6 @@ class AdminDiagnosticsView(APIView):
             try:
                 metrics[metric_name] = query()
             except Exception:
-                # Preserve the stronger connectivity failure state. A failed
-                # metric query after the probe already marked the database
-                # unreachable must not downgrade it to merely degraded.
                 if db_status != "unreachable":
                     db_status = "degraded"
                 errors.append(metric_name)

@@ -457,13 +457,24 @@ class ReviewRegressionTests(ExamDeliveryBaseTestCase):
 
     def _create_attempt(self, student=None, ends_at=None):
         student = student or self.student
-        return Attempt.objects.create(
+        attempt = Attempt.objects.create(
             exam=self.exam,
             student=student,
             status=Attempt.Status.IN_PROGRESS,
             started_at=self.now - timedelta(minutes=5),
             ends_at=ends_at or self.now + timedelta(minutes=20),
         )
+        exam_questions = self.exam.exam_questions.select_related("question").order_by("position")
+        Response.objects.bulk_create([
+            Response(
+                attempt=attempt,
+                question=eq.question,
+                submitted_answer="",
+                is_flagged=False,
+            )
+            for eq in exam_questions
+        ])
+        return attempt
 
     def test_existing_in_progress_attempt_can_resume_after_admission_window_closes(self):
         attempt = self._create_attempt(ends_at=self.now + timedelta(minutes=10))
@@ -601,3 +612,87 @@ class ReviewRegressionTests(ExamDeliveryBaseTestCase):
         second_response = self.client.post(f"/api/exams/{self.exam.id}/start/")
         self.assertEqual(second_response.status_code, status.HTTP_200_OK)
         self.assertEqual(second_response.data["attempt_id"], response.data["attempt_id"])
+
+    def test_expired_submission_ignores_late_answers_and_grades_only_pre_saved_answers(self):
+        attempt = self._create_attempt(ends_at=self.now - timedelta(minutes=10))
+        # Pre-save an answer for q_mcq prior to deadline
+        mcq_resp = attempt.responses.get(question=self.q_mcq)
+        mcq_resp.submitted_answer = "Software Requirements Specification"  # correct answer
+        mcq_resp.save()
+
+        # Late submission sends an answer for q_tf after deadline
+        self.client.force_authenticate(user=self.student)
+        response = self.client.post(
+            f"/api/exams/{self.exam.id}/attempts/{attempt.id}/submit/",
+            {
+                "responses": [
+                    {"question_id": self.q_tf.id, "submitted_answer": "False"},
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, Attempt.Status.SUBMITTED)
+        self.assertEqual(attempt.submission_reason, Attempt.SubmissionReason.TIMEOUT)
+
+        # q_mcq (pre-saved) was scored
+        mcq_resp.refresh_from_db()
+        self.assertEqual(mcq_resp.submitted_answer, "Software Requirements Specification")
+        self.assertEqual(mcq_resp.marks_obtained, Decimal("2.00"))
+
+        # q_tf (late answer) was ignored and NOT saved or scored
+        tf_resp = attempt.responses.get(question=self.q_tf)
+        self.assertEqual(tf_resp.submitted_answer, "")
+        self.assertEqual(tf_resp.marks_obtained, Decimal("0.00"))
+        self.assertEqual(attempt.objective_score, Decimal("2.00"))
+
+    def test_client_cannot_forge_timeout_reason_on_ontime_submission(self):
+        attempt = self._create_attempt(ends_at=self.now + timedelta(minutes=30))
+        self.client.force_authenticate(user=self.student)
+        response = self.client.post(
+            f"/api/exams/{self.exam.id}/attempts/{attempt.id}/submit/",
+            {
+                "reason": "timeout",
+                "responses": [
+                    {"question_id": self.q_mcq.id, "submitted_answer": "Software Requirements Specification"}
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, Attempt.Status.SUBMITTED)
+        self.assertEqual(attempt.submission_reason, Attempt.SubmissionReason.MANUAL)
+        self.assertEqual(attempt.objective_score, Decimal("2.00"))
+
+    def test_submit_rejects_question_not_in_attempt(self):
+        attempt = self._create_attempt(ends_at=self.now + timedelta(minutes=30))
+        unrelated = Question.objects.create(
+            text="Unrelated question", question_type=Question.QuestionType.MCQ,
+            options=["A", "B"], correct_answer="A", subject="Other",
+            topic="Other", difficulty=Question.Difficulty.EASY,
+        )
+        self.client.force_authenticate(user=self.student)
+        response = self.client.post(
+            f"/api/exams/{self.exam.id}/attempts/{attempt.id}/submit/",
+            {"responses": [{"question_id": unrelated.id, "submitted_answer": "A"}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_diagnostics_security_does_not_disclose_database_exceptions(self):
+        admin = User.objects.create_user(
+            username="test_admin_diag_deliv",
+            email="admin_diag_deliv@test.edu",
+            password="StrongPassword123!",
+            role=User.Role.ADMIN,
+        )
+        self.client.force_authenticate(user=admin)
+        from unittest.mock import patch
+        with patch("exam_delivery.views.connection.cursor", side_effect=Exception("sensitive_db_password")):
+            response = self.client.get("/api/admin/diagnostics/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "degraded")
+        self.assertEqual(response.data["database"]["status"], "unreachable")
+        self.assertNotIn("sensitive_db_password", str(response.data))

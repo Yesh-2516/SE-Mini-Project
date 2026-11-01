@@ -267,9 +267,6 @@ def submit_attempt(*, attempt, student, responses_data=None, reason="manual", no
     if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
         raise PermissionDenied("Only the student who owns this attempt can submit it.")
 
-    if attempt.status == Attempt.Status.IN_PROGRESS and attempt.is_expired(now):
-        reason = Attempt.SubmissionReason.TIMEOUT
-
     # Idempotent handling (OEP-NF-002)
     if attempt.status == Attempt.Status.SUBMITTED:
         return {
@@ -282,8 +279,16 @@ def submit_attempt(*, attempt, student, responses_data=None, reason="manual", no
             "is_graded": attempt.is_graded,
         }
 
-    # Save final answers if provided
-    if responses_data:
+    is_expired = attempt.status == Attempt.Status.IN_PROGRESS and attempt.is_expired(now)
+    submission_reason = (
+        Attempt.SubmissionReason.TIMEOUT
+        if is_expired
+        else Attempt.SubmissionReason.MANUAL
+    )
+
+    # Save final answers only if the attempt has not expired.
+    # Late answers sent after ends_at are ignored so only pre-deadline answers are scored.
+    if responses_data and not is_expired:
         responses_by_question_id = {
             resp.question_id: resp
             for resp in attempt.responses.select_for_update()
@@ -301,12 +306,6 @@ def submit_attempt(*, attempt, student, responses_data=None, reason="manual", no
             if "is_flagged" in item and item["is_flagged"] is not None:
                 resp.is_flagged = bool(item["is_flagged"])
             resp.save(update_fields=["submitted_answer", "is_flagged", "updated_at"])
-
-    submission_reason = (
-        Attempt.SubmissionReason.TIMEOUT
-        if str(reason).lower() == "timeout"
-        else Attempt.SubmissionReason.MANUAL
-    )
 
     attempt.status = Attempt.Status.SUBMITTED
     attempt.submission_reason = submission_reason

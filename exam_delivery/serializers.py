@@ -30,10 +30,6 @@ class SubmitRequestSerializer(serializers.Serializer):
         required=False,
         allow_empty=True,
     )
-    reason = serializers.ChoiceField(
-        choices=["manual", "timeout"],
-        default="manual",
-    )
 
 
 class FlagToggleSerializer(serializers.Serializer):
