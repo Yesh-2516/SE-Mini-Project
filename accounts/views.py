@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import authenticate, user_logged_in
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
@@ -9,6 +10,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.authentication import issue_token
 from accounts.backends import find_account
 from accounts.lockout import is_locked
 from accounts.models import User
@@ -113,7 +115,7 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        token, _ = Token.objects.get_or_create(user=user)
+        token = issue_token(user)
         user_logged_in.send(
             sender=user.__class__,
             request=request._request,
@@ -130,6 +132,7 @@ class LoginView(APIView):
 
         return Response({
             "token": token.key,
+            "expires_in": int(settings.TOKEN_IDLE_TIMEOUT.total_seconds()),
             "role": user.role,
             "user": UserSerializer(user).data,
         })
