@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+from datetime import timedelta
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -104,6 +105,10 @@ PASSWORD_HASHERS = [
 AUTHENTICATION_BACKENDS = [
     'accounts.backends.EmailUsernameOrRollNumberBackend',
 ]
+
+# Account lockout (OEP-F-004, OEP-SR-005).
+ACCOUNT_LOCKOUT_THRESHOLD = 5
+ACCOUNT_LOCKOUT_DURATION = timedelta(minutes=15)
 
 REST_FRAMEWORK = {
     # Token first so unauthenticated API requests get 401, not 403.

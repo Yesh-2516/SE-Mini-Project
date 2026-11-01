@@ -9,6 +9,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.backends import find_account
+from accounts.lockout import is_locked
 from accounts.models import User
 from accounts.permissions import IsAdmin
 from accounts.serializers import (
@@ -99,6 +101,13 @@ class LoginView(APIView):
         )
 
         if user is None:
+            account = find_account(serializer.validated_data["identifier"])
+            if account is not None and is_locked(account):
+                return Response(
+                    {"detail": "Account is temporarily locked. Try again later."},
+                    status=status.HTTP_423_LOCKED,
+                )
+
             return Response(
                 {"detail": "Invalid credentials."},
                 status=status.HTTP_401_UNAUTHORIZED,

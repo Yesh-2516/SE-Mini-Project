@@ -119,7 +119,7 @@ curl http://127.0.0.1:8000/api/auth/me/ \
 | Method | Path | Who | Purpose |
 |---|---|---|---|
 | POST | `/api/auth/register/` | Anyone | Student sign-up with email and/or roll number |
-| POST | `/api/auth/login/` | Anyone | Get a token and role |
+| POST | `/api/auth/login/` | Anyone | Get a token and role (`423` while the account is locked) |
 | POST | `/api/auth/logout/` | Logged in | Invalidate the token |
 | GET | `/api/auth/me/` | Logged in | Current user and role |
 
@@ -192,7 +192,7 @@ Sprint 1 features merged into `main`:
 
 | Module | Requirements |
 |---|---|
-| Authentication & access control | OEP-F-001 registration, OEP-F-002 login, OEP-F-003 role-based access, OEP-SR-002 Argon2 hashing |
+| Authentication & access control | OEP-F-001 registration, OEP-F-002 login, OEP-F-003 role-based access, OEP-F-004 account lockout, OEP-SR-002 Argon2 hashing, OEP-SR-005 lockout audit |
 | Question bank | OEP-F-010 add questions, OEP-F-011 tagging and filtering, OEP-F-012 bulk import, OEP-F-013 edit/delete with exam lock |
 | Exam creation | OEP-F-020 assembly (manual or rule-based), OEP-F-021 duration and scoring, OEP-F-022 availability window |
 | Exam delivery | OEP-F-030 server-synced timer, OEP-F-031 question navigation & flags, OEP-F-032 auto-submit on timeout, OEP-F-033 manual submit, OEP-F-034 single-attempt rule & reattempt, OEP-F-035 periodic autosave |
@@ -201,7 +201,7 @@ Sprint 1 features merged into `main`:
 | Non-Functional | OEP-NF-001 concurrent exam-start performance test (2s P90 target; measured result must be recorded), OEP-NF-002 persisted-response/session-replacement and idempotent-submit tests, OEP-NF-003 health-probe simulation (not proof of 99% scheduled-window uptime) |
 | Security | OEP-SR-004 answer keys kept out of student exam data |
 
-Upcoming features include publishing exams to courses, subjective evaluation queue, results & scorecards, account lockout and audit logging. See the [issues](https://github.com/Yesh-2516/SE-Mini-Project/issues) for the full backlog.
+Upcoming features include publishing exams to courses, subjective evaluation queue, results & scorecards. See the [issues](https://github.com/Yesh-2516/SE-Mini-Project/issues) for the full backlog.
 
 Implementation choices that differ from the SRS/SAD are recorded in [deviations.md](deviations.md).
 
