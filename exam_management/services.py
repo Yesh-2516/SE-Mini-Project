@@ -30,7 +30,6 @@ def shuffle_paper(questions, seed):
     are shuffled; True/False options remain in their standard order.
     """
     question_rng = random.Random(seed)
-    option_rng = random.Random(f"{seed}:options")
 
     shuffled_questions = [dict(question) for question in questions]
     question_rng.shuffle(shuffled_questions)
@@ -40,6 +39,9 @@ def shuffle_paper(questions, seed):
 
         if question.get("question_type") == Question.QuestionType.MCQ:
             question["options"] = list(options)
+            option_rng = random.Random(
+                f"{seed}:options:{question.get('question_id')}"
+            )
             option_rng.shuffle(question["options"])
 
     for position, question in enumerate(shuffled_questions, start=1):

@@ -170,20 +170,20 @@ class ShufflePaperTests(SimpleTestCase):
                 ["A", "B", "C", "D"],
             )
 
-    def test_option_shuffle_is_independent_of_question_shuffle(self):
+    def test_option_order_does_not_depend_on_question_order(self):
         first = shuffle_paper(self.questions, seed=10)
-        second = shuffle_paper(self.questions, seed=20)
-
-        first_mcq = next(
-            question for question in first
-            if question["question_id"] == 1
-        )
-        second_mcq = next(
-            question for question in second
-            if question["question_id"] == 1
+        second = shuffle_paper(
+            list(reversed(self.questions)),
+            seed=10,
         )
 
-        self.assertEqual(
-            first_mcq["options"],
-            second_mcq["options"],
-        )
+        first_options = {
+            question["question_id"]: question["options"]
+            for question in first
+        }
+        second_options = {
+            question["question_id"]: question["options"]
+            for question in second
+        }
+
+        self.assertEqual(first_options, second_options)
