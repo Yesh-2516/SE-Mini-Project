@@ -199,7 +199,7 @@ Sprint 1 features merged into `main`:
 | Evaluation | OEP-F-040 objective-answer automatic grading wired to submission |
 | Administration | OEP-F-060 account management, OEP-F-061 courses and mappings, OEP-F-063 health diagnostics panel |
 | Non-Functional | OEP-NF-001 concurrent exam-start performance test (2s P90 target; measured result must be recorded), OEP-NF-002 persisted-response/session-replacement and idempotent-submit tests, OEP-NF-003 health-probe simulation (not proof of 99% scheduled-window uptime) |
-| Security | OEP-SR-004 answer keys kept out of student exam data |
+| Security | OEP-SR-004 answer keys kept out of student exam data, OEP-SR-006 role checks on every endpoint |
 
 Upcoming features include publishing exams to courses, subjective evaluation queue, results & scorecards. See the [issues](https://github.com/Yesh-2516/SE-Mini-Project/issues) for the full backlog.
 
@@ -237,5 +237,6 @@ Before opening a pull request, run `python -m pytest` and `python manage.py chec
 - [Software Architecture and Design Specification](Software%20Architecture%20and%20Design%20Specification.docx)
 - [Software Test Plan](Software%20Test%20Plan.docx)
 - [Database Models Specification](docs/models.md)
+- [Endpoint-to-Role List (TC-Sec-06)](docs/endpoint_roles.md)
 - [Performance Verification Report (TC-Perf-01)](docs/performance_report.md)
 - [Availability Verification Report (TC-Ops-01)](docs/availability_report.md)
