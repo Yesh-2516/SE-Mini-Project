@@ -11,9 +11,8 @@ from accounts.audit import record_audit_event
 from accounts.backends import find_account
 from accounts.lockout import is_locked
 from accounts.models import User
-from exam_management.models import Exam
 from web.forms import LoginForm
-from web.services import get_student_exam_rows
+from web.services import get_student_exam_rows, get_visible_exams
 
 
 def safe_next_url(request):
@@ -98,5 +97,5 @@ def take_exam(request, exam_id):
     if request.user.role != User.Role.STUDENT:
         raise PermissionDenied
 
-    exam = get_object_or_404(Exam, pk=exam_id)
+    exam = get_object_or_404(get_visible_exams(student=request.user), pk=exam_id)
     return render(request, "web/exam.html", {"exam": exam})

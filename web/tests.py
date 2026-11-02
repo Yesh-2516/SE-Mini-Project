@@ -1,6 +1,9 @@
+import tempfile
 from datetime import timedelta
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -66,6 +69,16 @@ class WebTestCase(TestCase):
             reverse("web-login"),
             {"identifier": username, "password": password, **extra},
         )
+
+
+class StaticFilesTests(TestCase):
+    def test_collectstatic_gathers_the_site_files(self):
+        with tempfile.TemporaryDirectory() as static_root:
+            with self.settings(STATIC_ROOT=static_root):
+                call_command("collectstatic", interactive=False, verbosity=0)
+
+            self.assertTrue(Path(static_root, "web", "exam.js").exists())
+            self.assertTrue(Path(static_root, "web", "site.css").exists())
 
 
 class LoginPageTests(WebTestCase):
@@ -261,6 +274,56 @@ class TakeExamPageTests(WebTestCase):
         response = self.client.get(reverse("web-take-exam", args=[999999]))
 
         self.assertEqual(response.status_code, 404)
+
+    def assert_page_hidden(self, exam):
+        self.client.force_login(self.student)
+
+        response = self.client.get(reverse("web-take-exam", args=[exam.id]))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertNotContains(response, exam.title, status_code=404)
+
+    def test_future_exam_is_not_found(self):
+        self.assert_page_hidden(self.create_exam("Future", starts=60, ends=120))
+
+    def test_closed_exam_is_not_found(self):
+        self.assert_page_hidden(self.create_exam("Past", starts=-120, ends=-60))
+
+    def test_exam_without_questions_is_not_found(self):
+        self.assert_page_hidden(self.create_exam("Empty", with_question=False))
+
+    def test_expired_attempt_does_not_keep_a_closed_exam_open(self):
+        closed = self.create_exam("Past", starts=-120, ends=-60)
+        self.create_attempt(exam=closed, ends_at=self.now - timedelta(minutes=1))
+
+        self.assert_page_hidden(closed)
+
+    def test_running_attempt_can_resume_after_the_window_closes(self):
+        closed = self.create_exam("Closed", starts=-120, ends=-1)
+        self.create_attempt(exam=closed)
+        self.client.force_login(self.student)
+
+        response = self.client.get(reverse("web-take-exam", args=[closed.id]))
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_student_can_reopen_an_open_exam_after_submitting(self):
+        # The page explains that the attempt is already used.
+        self.create_attempt(status=Attempt.Status.SUBMITTED)
+        self.client.force_login(self.student)
+
+        self.assertEqual(self.client.get(self.url()).status_code, 200)
+
+    def test_delivery_api_returns_401_once_the_session_ends(self):
+        # exam.js shows a log-in link for this response.
+        self.client.force_login(self.student)
+        attempt = self.create_attempt()
+        path = f"/api/exams/{self.exam.id}/attempts/{attempt.id}/timer/"
+        self.assertEqual(self.client.get(path).status_code, 200)
+
+        self.client.session.flush()
+
+        self.assertEqual(self.client.get(path).status_code, 401)
 
     def test_page_does_not_contain_questions_or_answer_keys(self):
         # Questions only load through the delivery API (OEP-SR-004).
