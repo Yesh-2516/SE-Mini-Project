@@ -1,5 +1,7 @@
 
+from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Exam(models.Model):
@@ -7,6 +9,13 @@ class Exam(models.Model):
         DRAFT = "DRAFT", "Draft"
 
     title = models.CharField(max_length=200)
+    course = models.ForeignKey(
+    "courses.Course",
+    on_delete=models.PROTECT,
+    related_name="exams",
+    null=True,
+    blank=True,
+)
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -75,3 +84,58 @@ class ExamQuestion(models.Model):
 
     def __str__(self):
         return f"{self.exam.title} - Question {self.position}"
+
+class StudentAnswer(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        GRADED = "GRADED", "Graded"
+
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="exam_answers",
+    )
+    exam = models.ForeignKey(
+        "exam_management.Exam",
+        on_delete=models.CASCADE,
+        related_name="student_answers",
+    )
+    question = models.ForeignKey(
+        "question_bank.Question",
+        on_delete=models.PROTECT,
+        related_name="student_answers",
+    )
+    submitted_answer = models.TextField()
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    marks_awarded = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    feedback = models.TextField(blank=True)
+    graded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="graded_answers",
+    )
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    graded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student", "exam", "question"],
+                name="unique_student_exam_question_answer",
+            )
+        ]
+        ordering = ["submitted_at"]
+
+    def __str__(self):
+        return f"{self.student} - {self.exam} - {self.question}"

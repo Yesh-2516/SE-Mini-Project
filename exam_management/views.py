@@ -1,14 +1,17 @@
 
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsFacultyOrAdmin
-from exam_management.models import Exam, ExamQuestion
+from exam_management.models import Exam, ExamQuestion, StudentAnswer
 from exam_management.serializers import (
     ExamCreateSerializer,
     ExamQuestionMarksSerializer,
+        FacultyPendingAnswerSerializer,
+    GradeSubjectiveAnswerSerializer,
     ManualAssemblySerializer,
     RuleGenerationSerializer,
 )
@@ -143,3 +146,68 @@ class ExamQuestionMarksView(APIView):
             "marks": exam_question.marks,
             "total_marks": exam.total_marks,
         })
+
+class FacultyPendingAnswersView(APIView):
+    """Return pending subjective answers grouped by exam."""
+
+    permission_classes = [IsFacultyOrAdmin]
+
+    def get(self, request):
+        answers = StudentAnswer.objects.filter(
+            status=StudentAnswer.Status.PENDING
+        ).select_related(
+            "student",
+            "exam",
+            "question"
+        ).order_by("exam_id", "submitted_at")
+
+        serializer = FacultyPendingAnswerSerializer(
+            answers,
+            many=True
+        )
+
+        grouped_answers = {}
+
+        for answer in serializer.data:
+            exam_id = answer["exam_id"]
+
+            if exam_id not in grouped_answers:
+                grouped_answers[exam_id] = []
+
+            grouped_answers[exam_id].append(answer)
+
+        return Response(grouped_answers, status=status.HTTP_200_OK)
+
+
+class GradeSubjectiveAnswerView(APIView):
+    """Grade a pending subjective answer."""
+
+    permission_classes = [IsFacultyOrAdmin]
+
+    def patch(self, request, answer_id):
+        answer = get_object_or_404(
+            StudentAnswer,
+            pk=answer_id,
+            status=StudentAnswer.Status.PENDING
+        )
+
+        serializer = GradeSubjectiveAnswerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        answer.marks_awarded = serializer.validated_data["marks_awarded"]
+        answer.feedback = serializer.validated_data.get("feedback", "")
+        answer.status = StudentAnswer.Status.GRADED
+        answer.graded_by = request.user
+        answer.graded_at = timezone.now()
+
+        answer.save()
+
+        return Response(
+            {
+                "detail": "Answer graded successfully.",
+                "answer_id": answer.id,
+                "marks_awarded": str(answer.marks_awarded),
+                "status": answer.status,
+            },
+            status=status.HTTP_200_OK
+        )

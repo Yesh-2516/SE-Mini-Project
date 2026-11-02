@@ -5,6 +5,8 @@ from exam_management.views import (
     ExamDetailView,
     ExamListCreateView,
     ExamQuestionMarksView,
+    FacultyPendingAnswersView,
+GradeSubjectiveAnswerView,
     ManualAssemblyView,
     RuleGenerationView,
 )
@@ -27,4 +29,14 @@ urlpatterns = [
         ExamQuestionMarksView.as_view(),
         name="exam-question-marks",
     ),
+    path(
+    "faculty/pending-answers/",
+    FacultyPendingAnswersView.as_view(),
+    name="faculty-pending-answers",
+),
+path(
+    "faculty/answers/<int:answer_id>/grade/",
+    GradeSubjectiveAnswerView.as_view(),
+    name="grade-subjective-answer",
+),
 ]
