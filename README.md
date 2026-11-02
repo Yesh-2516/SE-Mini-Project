@@ -100,6 +100,7 @@ The response contains a token and the user's role:
 ```json
 {
   "token": "9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b",
+  "expires_in": 1800,
   "role": "ADMIN",
   "user": { "id": 1, "username": "admin", "role": "ADMIN" }
 }
@@ -111,6 +112,8 @@ Send the token in the `Authorization` header on later requests:
 curl http://127.0.0.1:8000/api/auth/me/ \
   -H "Authorization: Token 9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b"
 ```
+
+Tokens expire after `expires_in` seconds without a request (30 minutes by default; set `TOKEN_IDLE_TIMEOUT_MINUTES` to change it), and immediately on logout. An expired token gets a `401`, and the client must log in again.
 
 ### Endpoints
 
@@ -192,7 +195,7 @@ Sprint 1 features merged into `main`:
 
 | Module | Requirements |
 |---|---|
-| Authentication & access control | OEP-F-001 registration, OEP-F-002 login, OEP-F-003 role-based access, OEP-F-004 account lockout, OEP-SR-002 Argon2 hashing, OEP-SR-005 lockout audit |
+| Authentication & access control | OEP-F-001 registration, OEP-F-002 login, OEP-F-003 role-based access, OEP-F-004 account lockout, OEP-SR-002 Argon2 hashing, OEP-SR-003 session expiry, OEP-SR-005 lockout audit |
 | Question bank | OEP-F-010 add questions, OEP-F-011 tagging and filtering, OEP-F-012 bulk import, OEP-F-013 edit/delete with exam lock |
 | Exam creation | OEP-F-020 assembly (manual or rule-based), OEP-F-021 duration and scoring, OEP-F-022 availability window |
 | Exam delivery | OEP-F-030 server-synced timer, OEP-F-031 question navigation & flags, OEP-F-032 auto-submit on timeout, OEP-F-033 manual submit, OEP-F-034 single-attempt rule & reattempt, OEP-F-035 periodic autosave |
