@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from accounts.audit import record_audit_event
+from accounts.audit import client_ip, record_audit_event
 
 
 def is_locked(user, now=None):
@@ -34,7 +34,7 @@ def record_failed_login(user, request=None, now=None):
                 "target_user_id": account.pk,
                 "locked_until": account.locked_until.isoformat(),
             },
-            ip_address=request.META.get("REMOTE_ADDR") if request else None,
+            ip_address=client_ip(request),
         )
 
     account.save(update_fields=["failed_login_attempts", "locked_until"])

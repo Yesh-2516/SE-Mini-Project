@@ -7,6 +7,8 @@ Every client-server connection must use TLS 1.2 or higher. TLS is handled in two
 
 Local development is unchanged: without the variable, the app runs over plain HTTP.
 
+> **TLS is opt-in.** If `DJANGO_TLS_ENABLED` is forgotten on a server, Django serves plain HTTP with no warning, and the debug defaults stay on. Always run the `check --deploy` step below before going live.
+
 ## Deploying
 
 1. Get a certificate for the server's domain and install it at the paths in `deploy/nginx.conf`.
@@ -17,8 +19,30 @@ Local development is unchanged: without the variable, the app runs over plain HT
 |---|---|---|
 | `DJANGO_TLS_ENABLED` | `1` | Turns on the HTTPS settings |
 | `DJANGO_ALLOWED_HOSTS` | `exam-portal.example.edu` | Comma-separated list of allowed domains |
+| `DJANGO_SECRET_KEY` | A long random string | Signs sessions and tokens. Startup fails without it when TLS is on |
+| `DJANGO_DEBUG` | Leave unset | Debug is off by default when TLS is on. Never set it to `1` on a server |
 
-Django must only be reachable through nginx. With `DJANGO_TLS_ENABLED=1` it trusts the `X-Forwarded-Proto` header, which a client could fake if it reached Django directly.
+Generate a secret key with:
+
+```bash
+python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+```
+
+4. Gather the static files into `STATIC_ROOT`, then point the `/static/` location in `deploy/nginx.conf` at that folder:
+
+```bash
+python manage.py collectstatic --noinput
+```
+
+5. With the same environment variables set, run Django's deployment check. It must report no issues:
+
+```bash
+python manage.py check --deploy
+```
+
+The HSTS subdomain and preload warnings (`security.W005`, `security.W021`) are silenced on purpose. Both would apply HTTPS-only rules to every site on the institution's domain, so they should only be turned on with that domain's administrators.
+
+Django must only be reachable through nginx. With `DJANGO_TLS_ENABLED=1` it trusts the `X-Forwarded-Proto` and `X-Forwarded-For` headers, which a client could fake if it reached Django directly. Audit logs record the last address in `X-Forwarded-For`, which is the one nginx added.
 
 ## Verifying (TC-Sec-01)
 
