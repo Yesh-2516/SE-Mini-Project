@@ -113,7 +113,9 @@ curl http://127.0.0.1:8000/api/auth/me/ \
   -H "Authorization: Token 9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b"
 ```
 
-Tokens expire after `expires_in` seconds without a request (30 minutes by default; set `TOKEN_IDLE_TIMEOUT_MINUTES` to change it), and immediately on logout. An expired token gets a `401`, and the client must log in again.
+Tokens expire after `expires_in` seconds without a request (30 minutes by default; set `TOKEN_IDLE_TIMEOUT_MINUTES` to change it), and immediately on logout. An expired token gets a `401`, and the client must log in again. The value must be a whole number of minutes, 1 or more; anything else stops the server at startup with an error naming the setting.
+
+> **Upgrading to this release:** tokens issued before session expiry was added have no recorded activity, so their age is counted from when they were created. Any such token older than the timeout is rejected on its next request, which means existing users have to log in once more.
 
 ### Endpoints
 
