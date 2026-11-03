@@ -1,0 +1,38 @@
+{% extends "web/base.html" %}
+
+{% block title %}Dashboard - Online Exam Portal{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-3">Dashboard</h1>
+
+{% if user.role == "STUDENT" %}
+  <h2 class="h5">Your exams</h2>
+  {% if exam_rows %}
+  <ul class="list-group">
+    {% for row in exam_rows %}
+    <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <div>
+        <div class="fw-semibold">{{ row.exam.title }}</div>
+        <div class="small text-body-secondary">
+          {{ row.exam.duration_minutes }} minutes, closes {{ row.exam.availability_end|date:"j M Y, H:i" }} UTC
+        </div>
+      </div>
+      {% if row.state == "not_started" %}
+      <a class="btn btn-primary" href="{% url 'web-take-exam' row.exam.id %}">Open <span class="visually-hidden">{{ row.exam.title }}</span></a>
+      {% elif row.state == "in_progress" %}
+      <a class="btn btn-primary" href="{% url 'web-take-exam' row.exam.id %}">Resume <span class="visually-hidden">{{ row.exam.title }}</span></a>
+      {% elif row.state == "reattempt" %}
+      <a class="btn btn-primary" href="{% url 'web-take-exam' row.exam.id %}">Attempt again <span class="visually-hidden">{{ row.exam.title }}</span></a>
+      {% else %}
+      <span class="badge text-bg-secondary">Submitted</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>You have no open exams right now.</p>
+  {% endif %}
+{% else %}
+  <p>{{ user.get_role_display }} screens aren't built yet. Please use the API for now.</p>
+{% endif %}
+{% endblock %}

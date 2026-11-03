@@ -2,7 +2,7 @@
 
 A web-based portal for running online exams, built as our Software Engineering mini project. Admins manage users and courses, Faculty build question banks and exams, and Students sign up, take timed exams and see their results.
 
-This repository holds the backend: a REST API built with Django and Django REST Framework. The full requirements and design are in the documents listed under [Project documents](#project-documents).
+This repository holds a REST API built with Django and Django REST Framework, and the student website built on it with Django templates and Bootstrap. The full requirements and design are in the documents listed under [Project documents](#project-documents).
 
 ## Team
 
@@ -59,6 +59,7 @@ Superusers automatically get the Admin role. Admins can then create Faculty and 
 python manage.py runserver
 ```
 
+- Website: http://127.0.0.1:8000/
 - API: http://127.0.0.1:8000/api/
 - Django admin: http://127.0.0.1:8000/admin/
 
@@ -219,6 +220,7 @@ SE-Mini-Project/
 ├── question_bank/     # Questions, tagging, bulk import, objective grading
 ├── exam_management/   # Exams, assembly, scoring settings, availability window
 ├── exam_delivery/     # Exam sitting, server-synced timer, autosave, submission, diagnostics
+├── web/               # Website: login, dashboard, student exam page
 ├── docs/              # Database models, performance and availability reports
 ├── config/            # Django settings and root URLs
 ├── deploy/            # nginx configuration for HTTPS

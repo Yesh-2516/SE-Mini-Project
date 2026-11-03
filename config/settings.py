@@ -87,6 +87,7 @@ INSTALLED_APPS = [
     'question_bank',
     'exam_management',
     'exam_delivery',
+    'web',
 ]
 
 MIDDLEWARE = [
@@ -147,6 +148,8 @@ PASSWORD_HASHERS = [
 AUTHENTICATION_BACKENDS = [
     'accounts.backends.EmailUsernameOrRollNumberBackend',
 ]
+
+LOGIN_URL = 'web-login'
 
 # Account lockout (OEP-F-004, OEP-SR-005).
 ACCOUNT_LOCKOUT_THRESHOLD = 5
@@ -212,6 +215,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
