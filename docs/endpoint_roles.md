@@ -54,6 +54,10 @@ Roles are only the first check. Exam delivery also confirms that the attempt bel
 | `exam-manual-assembly` | `/api/exams/<int:pk>/assemble/` | POST | Faculty, Admin |
 | `exam-rule-generation` | `/api/exams/<int:pk>/generate/` | POST | Faculty, Admin |
 | `exam-question-marks` | `/api/exams/<int:pk>/questions/<int:question_id>/marks/` | PATCH | Faculty, Admin |
+| `exam-courses` | `/api/exams/<int:pk>/courses/` | POST | Faculty, Admin |
+| `exam-course-detail` | `/api/exams/<int:pk>/courses/<int:course_id>/` | DELETE | Faculty, Admin |
+| `exam-publish` | `/api/exams/<int:pk>/publish/` | POST | Faculty, Admin |
+| `exam-unpublish` | `/api/exams/<int:pk>/unpublish/` | POST | Faculty, Admin |
 
 ## Exam delivery
 

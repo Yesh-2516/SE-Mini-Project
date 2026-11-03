@@ -143,3 +143,13 @@
 - **Archival:** `python manage.py archive_audit_logs [--archive-dir DIR] [--dry-run]` writes entries older than the retention period to a JSON Lines file, checks the line count, then removes them and logs an `audit.archived` entry. It is not scheduled automatically: run it from cron, e.g. weekly.
 - **Retrieval:** `GET /api/admin/users/audit-logs/` (Admin) now accepts `event_type`, `actor`, `since`, `until` (ISO date or date-time), `limit` (default 100, at most 500) and `offset`.
 - Deleting a user would still set `actor` to null on that user's entries (a database-level cascade). Accounts are deactivated rather than deleted in this system, so this does not happen in normal use.
+
+## 11. Publishing and Course Assignment (OEP-F-024)
+Any faculty member can publish any exam; publishing is not restricted to the exam's creator or course instructor.
+- `Exam.status` gains `PUBLISHED` (the question-bank edit lock already looked for it). `Exam.courses` links an exam to courses; the SRS says "groups or courses", and only courses exist in this project, so groups are not modelled.
+- `POST /api/exams/<id>/courses/` (`{"course_ids": [...]}`) assigns and `DELETE /api/exams/<id>/courses/<course_id>/` removes a course. Admin may use any course. Faculty may only use courses they are mapped to; otherwise `403`. Courses can only be changed while the exam is a draft.
+- `POST /api/exams/<id>/publish/` needs at least one question, both ends of the availability window, a window that has not already closed, and at least one course. All problems are reported together in one `400`. A published exam is locked: settings, assembly and marks return `400` until it is unpublished.
+- `POST /api/exams/<id>/unpublish/` returns it to draft. This is blocked once any student has started it, so graded attempts never point at an exam whose questions or marks could change. This is stricter than the SRS wording "published or unpublished at will"; relax it in `unpublish_exam()` if the team prefers.
+- Starting an exam now also requires it to be published and assigned to a course the student is enrolled in, otherwise `403` (`exam_not_available`). The availability-window check still runs first, so closed windows still return "This exam is not open." A student who already has an in-progress attempt can still resume it.
+- `exam_management.services.get_exams_visible_to_student()` returns the exams a student may see. The student website branch (`feature/OEP-F-030-student-exam-web`) currently lists every open exam and should switch to this helper once both are merged.
+

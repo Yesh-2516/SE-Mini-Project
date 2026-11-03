@@ -5,6 +5,7 @@ from django.db import models
 class Exam(models.Model):
     class Status(models.TextChoices):
         DRAFT = "DRAFT", "Draft"
+        PUBLISHED = "PUBLISHED", "Published"
 
     title = models.CharField(max_length=200)
     status = models.CharField(
@@ -33,6 +34,12 @@ class Exam(models.Model):
     questions = models.ManyToManyField(
         "question_bank.Question",
         through="ExamQuestion",
+        related_name="exams",
+    )
+    # Courses whose enrolled students may sit this exam (OEP-F-024).
+    courses = models.ManyToManyField(
+        "courses.Course",
+        blank=True,
         related_name="exams",
     )
 

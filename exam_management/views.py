@@ -6,7 +6,9 @@ from rest_framework.views import APIView
 
 from accounts.permissions import IsFacultyOrAdmin
 from exam_management.models import Exam, ExamQuestion
+from courses.models import Course
 from exam_management.serializers import (
+    ExamCourseAssignmentSerializer,
     ExamCreateSerializer,
     ExamQuestionMarksSerializer,
     ManualAssemblySerializer,
@@ -14,7 +16,11 @@ from exam_management.serializers import (
 )
 from exam_management.services import (
     assemble_exam_manually,
+    assign_courses,
     generate_exam_by_rules,
+    publish_exam,
+    unassign_course,
+    unpublish_exam,
 )
 from rest_framework.exceptions import ValidationError
 
@@ -143,3 +149,69 @@ class ExamQuestionMarksView(APIView):
             "marks": exam_question.marks,
             "total_marks": exam.total_marks,
         })
+
+
+class ExamCoursesView(APIView):
+    """Assign courses to a draft exam (OEP-F-024)."""
+
+    permission_classes = [IsFacultyOrAdmin]
+
+    def post(self, request, pk):
+        exam = get_object_or_404(Exam, pk=pk)
+        serializer = ExamCourseAssignmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        assign_courses(
+            exam=exam,
+            course_ids=serializer.validated_data["course_ids"],
+            user=request.user,
+        )
+
+        return Response(
+            {"courses": sorted(exam.courses.values_list("id", flat=True))},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ExamCourseDetailView(APIView):
+    """Remove one course from a draft exam (OEP-F-024)."""
+
+    permission_classes = [IsFacultyOrAdmin]
+
+    def delete(self, request, pk, course_id):
+        exam = get_object_or_404(Exam, pk=pk)
+        course = get_object_or_404(Course, pk=course_id)
+
+        unassign_course(exam=exam, course=course, user=request.user)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ExamPublishView(APIView):
+    """Publish a draft exam to its assigned courses (OEP-F-024)."""
+
+    permission_classes = [IsFacultyOrAdmin]
+
+    def post(self, request, pk):
+        exam = get_object_or_404(Exam, pk=pk)
+        exam = publish_exam(exam=exam)
+
+        return Response(
+            {"detail": "Exam published.", "status": exam.status},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ExamUnpublishView(APIView):
+    """Return a published exam to draft (OEP-F-024)."""
+
+    permission_classes = [IsFacultyOrAdmin]
+
+    def post(self, request, pk):
+        exam = get_object_or_404(Exam, pk=pk)
+        exam = unpublish_exam(exam=exam)
+
+        return Response(
+            {"detail": "Exam unpublished.", "status": exam.status},
+            status=status.HTTP_200_OK,
+        )

@@ -3,6 +3,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
+from courses.models import Course
 from exam_management.models import Exam, ExamQuestion
 from exam_management.serializers import StudentExamQuestionSerializer
 from question_bank.models import Question
@@ -11,6 +12,16 @@ from question_bank.models import Question
 class ExamNotOpen(PermissionDenied):
     default_detail = "This exam is not open."
     default_code = "exam_not_open"
+
+
+class ExamNotAvailable(PermissionDenied):
+    """The exam is unpublished or not assigned to the student (OEP-F-024).
+
+    One message covers both cases so a student can't probe which exams exist.
+    """
+
+    default_detail = "This exam is not available to you."
+    default_code = "exam_not_available"
 
 
 def is_exam_open(exam, now=None):
@@ -219,4 +230,135 @@ def generate_exam_by_rules(
         for position, question in enumerate(selected_questions, start=1)
     ])
 
+    return exam
+
+
+def get_exams_visible_to_student(student):
+    """Published exams assigned to a course the student is enrolled in."""
+
+    return Exam.objects.filter(
+        status=Exam.Status.PUBLISHED,
+        courses__students=student,
+    ).distinct()
+
+
+def ensure_student_can_sit(*, exam, student):
+    """Raise ExamNotAvailable unless the student may start this exam (OEP-F-024)."""
+
+    if exam.status != Exam.Status.PUBLISHED:
+        raise ExamNotAvailable()
+
+    if not exam.courses.filter(students=student).exists():
+        raise ExamNotAvailable()
+
+
+def _require_draft(exam, action):
+    if exam.status != Exam.Status.DRAFT:
+        raise ValidationError(
+            f"Unpublish the exam before you {action}."
+        )
+
+
+@transaction.atomic
+def assign_courses(*, exam, course_ids, user):
+    """Assign courses to a draft exam. Faculty may only use their own courses."""
+
+    _require_draft(exam, "change its courses")
+
+    courses = list(Course.objects.filter(id__in=course_ids))
+    found_ids = {course.id for course in courses}
+    missing_ids = sorted(set(course_ids) - found_ids)
+    if missing_ids:
+        raise ValidationError({
+            "course_ids": f"Unknown course IDs: {missing_ids}"
+        })
+
+    if getattr(user, "role", None) == "FACULTY":
+        taught_ids = set(
+            Course.objects.filter(
+                id__in=found_ids, faculty=user
+            ).values_list("id", flat=True)
+        )
+        not_taught = sorted(found_ids - taught_ids)
+        if not_taught:
+            raise PermissionDenied(
+                f"You can only assign courses you teach. Not allowed: {not_taught}"
+            )
+
+    exam.courses.add(*courses)
+    return exam
+
+
+@transaction.atomic
+def unassign_course(*, exam, course, user):
+    """Remove a course from a draft exam. Faculty may only use their own courses."""
+
+    _require_draft(exam, "change its courses")
+
+    if getattr(user, "role", None) == "FACULTY" and not course.faculty.filter(
+        pk=user.pk
+    ).exists():
+        raise PermissionDenied("You can only change courses you teach.")
+
+    if not exam.courses.filter(pk=course.pk).exists():
+        raise ValidationError("This course is not assigned to the exam.")
+
+    exam.courses.remove(course)
+    return exam
+
+
+@transaction.atomic
+def publish_exam(*, exam, now=None):
+    """Publish a draft exam so students in its courses can sit it (OEP-F-024)."""
+
+    now = now or timezone.now()
+    # Lock the row so two publish/unpublish calls can't interleave.
+    exam = Exam.objects.select_for_update().get(pk=exam.pk)
+
+    if exam.status != Exam.Status.DRAFT:
+        raise ValidationError("This exam is already published.")
+
+    problems = {}
+    if not exam.exam_questions.exists():
+        problems["questions"] = "Add at least one question before publishing."
+    if exam.availability_start is None or exam.availability_end is None:
+        problems["availability"] = (
+            "Set the availability start and end before publishing."
+        )
+    elif exam.availability_end <= now:
+        problems["availability_end"] = (
+            "The availability window has already closed."
+        )
+    if not exam.courses.exists():
+        problems["courses"] = "Assign at least one course before publishing."
+
+    if problems:
+        raise ValidationError(problems)
+
+    exam.status = Exam.Status.PUBLISHED
+    exam.save(update_fields=["status", "updated_at"])
+    return exam
+
+
+@transaction.atomic
+def unpublish_exam(*, exam):
+    """Return a published exam to draft.
+
+    Blocked once any student has started it, so graded attempts are never
+    left pointing at an exam whose questions or marks could still change.
+    """
+
+    exam = Exam.objects.select_for_update().get(pk=exam.pk)
+
+    if exam.status != Exam.Status.PUBLISHED:
+        raise ValidationError("Only published exams can be unpublished.")
+
+    if exam.attempts.exists():
+        raise ValidationError(
+            "This exam can't be unpublished because students have already "
+            "started it."
+        )
+
+    exam.status = Exam.Status.DRAFT
+    exam.save(update_fields=["status", "updated_at"])
     return exam

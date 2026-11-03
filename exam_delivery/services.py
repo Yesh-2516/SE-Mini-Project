@@ -10,7 +10,13 @@ from accounts.audit import EVENT_SUBMISSION, record_audit_event, record_integrit
 from exam_delivery.models import Attempt, Response
 from exam_management.models import Exam
 from exam_management.serializers import StudentExamQuestionSerializer
-from exam_management.services import ExamNotOpen, is_exam_open, shuffle_paper
+from exam_management.services import (
+    ExamNotAvailable,
+    ExamNotOpen,
+    ensure_student_can_sit,
+    is_exam_open,
+    shuffle_paper,
+)
 from question_bank.grading import OBJECTIVE_QUESTION_TYPES, grade_objective_answer
 from question_bank.models import Question
 
@@ -96,16 +102,17 @@ def start_exam_attempt(*, exam, student, now=None):
         raise ExamAlreadyAttempted()
     if failure == "not_open":
         raise ExamNotOpen()
+    if failure == "not_available":
+        raise ExamNotAvailable()
     return attempt, is_new
 
 
 def _start_or_resume_locked(*, exam, student, now):
     """Check the attempt rules and create the attempt in one transaction.
 
-    Returns ``(attempt, is_new, failure)``. ``failure`` is None, or the
-    reason the caller must raise once the transaction has committed. When
-    ``failure`` is ``"already_attempted"``, ``attempt`` is the existing
-    attempt that blocked the start (so the caller can flag it).
+    Returns ``(attempt, is_new, failure)``. ``failure`` is None,
+    "already_attempted", "not_open", or "not_available".
+    When failure is "already_attempted", attempt is the existing attempt.
     """
     with transaction.atomic():
         # Serialise concurrent starts by the same student. SQLite ignores row
@@ -143,6 +150,11 @@ def _start_or_resume_locked(*, exam, student, now):
         # The availability window governs creation, not resumption.
         if not is_exam_open(exam, now):
             return None, False, "not_open"
+        # Only published exams assigned to the student's courses (OEP-F-024).
+        try:
+            ensure_student_can_sit(exam=exam, student=student)
+        except ExamNotAvailable:
+            return None, False, "not_available"		
 
         # Calculate server deadline
         candidate_end = now + timedelta(minutes=exam.duration_minutes)

@@ -12,6 +12,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from courses.models import Course
 from exam_delivery.models import Attempt, Response
 from exam_management.models import Exam, ExamQuestion
 from question_bank.models import Question
@@ -29,7 +30,10 @@ class NonFunctionalRequirementsTests(TransactionTestCase):
             duration_minutes=45,
             availability_start=self.now - timedelta(minutes=15),
             availability_end=self.now + timedelta(hours=3),
+            status=Exam.Status.PUBLISHED,
         )
+        self.course = Course.objects.create(code="NFR100", name="NFR Course")
+        self.exam.courses.add(self.course)
         self.question = Question.objects.create(
             text="What is 10 + 10?",
             question_type=Question.QuestionType.MCQ,
@@ -67,6 +71,7 @@ class NonFunctionalRequirementsTests(TransactionTestCase):
             )
             for i in range(200)
         ]
+        self.course.students.add(*students)
 
         worker_count = len(students)
         request_barrier = threading.Barrier(worker_count, timeout=120)
@@ -134,6 +139,7 @@ class NonFunctionalRequirementsTests(TransactionTestCase):
             password="StrongPassword123!",
             role=User.Role.STUDENT,
         )
+        self.course.students.add(student)
         client = APIClient()
         client.force_authenticate(user=student)
 
