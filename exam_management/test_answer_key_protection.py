@@ -175,6 +175,40 @@ class StudentPaperContentTests(TestCase):
             [1, 2, 3, 4],
         )
 
+    def test_default_paper_keeps_original_question_order(self):
+        paper = get_student_exam_paper(exam=self.exam)
+
+        self.assertEqual(
+            [question["question_id"] for question in paper["questions"]],
+            list(
+                self.exam.exam_questions.order_by("position").values_list(
+                    "question_id",
+                    flat=True,
+                )
+            ),
+        )
+
+    def test_same_seed_returns_same_student_paper(self):
+        first = get_student_exam_paper(
+            exam=self.exam,
+            shuffle_seed=12345,
+        )
+        second = get_student_exam_paper(
+            exam=self.exam,
+            shuffle_seed=12345,
+        )
+
+        self.assertEqual(first["questions"], second["questions"])
+
+    def test_shuffle_does_not_expose_answer_fields(self):
+        paper = get_student_exam_paper(
+            exam=self.exam,
+            shuffle_seed=12345,
+        )
+
+        keys = set(all_keys(json.loads(json.dumps(paper, default=str))))
+        self.assertNotIn("correct_answer", keys)
+        self.assertFalse({key for key in keys if "answer" in key.lower()})
 
 class StudentApiExposureTests(APITestCase):
     """TC-Sec-04: students cannot reach any endpoint that carries answers."""

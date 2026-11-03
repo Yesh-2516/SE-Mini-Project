@@ -10,7 +10,11 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
+from datetime import timedelta
 from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,13 +23,52 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
+def _env_flag(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ('1', 'true')
+
+
+# Deployments set DJANGO_TLS_ENABLED=1 (see the HTTPS section below). Local
+# development leaves it unset and keeps the debug defaults.
+TLS_ENABLED = _env_flag('DJANGO_TLS_ENABLED')
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-i9yfhu@20lexp%q2vh*$8)zc+qbg8x+6c9pxstjeum&b1n*$5t'
+# The fallback key is for local development only. A deployment must set
+# DJANGO_SECRET_KEY, and refuses to start without it.
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '')
+if not SECRET_KEY:
+    if TLS_ENABLED:
+        raise ImproperlyConfigured(
+            'DJANGO_SECRET_KEY must be set when DJANGO_TLS_ENABLED is on.'
+        )
+    SECRET_KEY = 'django-insecure-i9yfhu@20lexp%q2vh*$8)zc+qbg8x+6c9pxstjeum&b1n*$5t'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# On by default for local development, off by default for deployments.
+DEBUG = _env_flag('DJANGO_DEBUG', default=not TLS_ENABLED)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',')
+    if host.strip()
+]
+
+
+# HTTPS (OEP-SR-001). Off for local development; deployments set
+# DJANGO_TLS_ENABLED=1 behind the proxy in deploy/nginx.conf, which terminates
+# TLS. See docs/tls_deployment.md.
+if TLS_ENABLED:
+    SECURE_SSL_REDIRECT = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_HSTS_SECONDS = 31536000
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # HSTS stays limited to this host. Including subdomains or joining the
+    # browser preload list would affect every site on the institution's
+    # domain, which is not ours to decide.
+    SILENCED_SYSTEM_CHECKS = ['security.W005', 'security.W021']
 
 
 # Application definition
@@ -45,6 +88,7 @@ INSTALLED_APPS = [
     'exam_management',
     'exam_delivery',
     'evaluation',
+    'web',
 ]
 
 MIDDLEWARE = [
@@ -106,10 +150,28 @@ AUTHENTICATION_BACKENDS = [
     'accounts.backends.EmailUsernameOrRollNumberBackend',
 ]
 
+LOGIN_URL = 'web-login'
+
+# Account lockout (OEP-F-004, OEP-SR-005).
+ACCOUNT_LOCKOUT_THRESHOLD = 5
+ACCOUNT_LOCKOUT_DURATION = timedelta(minutes=15)
+
+# Idle session expiry (OEP-SR-003). API tokens and Django admin sessions both
+# end after this long without a request.
+_idle_minutes = os.environ.get('TOKEN_IDLE_TIMEOUT_MINUTES', '30')
+if not _idle_minutes.strip().isdigit() or int(_idle_minutes) < 1:
+    raise ImproperlyConfigured(
+        'TOKEN_IDLE_TIMEOUT_MINUTES must be a whole number of minutes, '
+        f'1 or more (got {_idle_minutes!r}).'
+    )
+TOKEN_IDLE_TIMEOUT = timedelta(minutes=int(_idle_minutes))
+SESSION_COOKIE_AGE = int(TOKEN_IDLE_TIMEOUT.total_seconds())
+SESSION_SAVE_EVERY_REQUEST = True
+
 REST_FRAMEWORK = {
     # Token first so unauthenticated API requests get 401, not 403.
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+        'accounts.authentication.IdleExpiringTokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     # Deny by default; each view narrows this to the roles it allows.
@@ -154,6 +216,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

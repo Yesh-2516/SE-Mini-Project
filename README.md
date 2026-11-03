@@ -2,7 +2,7 @@
 
 A web-based portal for running online exams, built as our Software Engineering mini project. Admins manage users and courses, Faculty build question banks and exams, and Students sign up, take timed exams and see their results.
 
-This repository holds the backend: a REST API built with Django and Django REST Framework. The full requirements and design are in the documents listed under [Project documents](#project-documents).
+This repository holds a REST API built with Django and Django REST Framework, and the student website built on it with Django templates and Bootstrap. The full requirements and design are in the documents listed under [Project documents](#project-documents).
 
 ## Team
 
@@ -59,6 +59,7 @@ Superusers automatically get the Admin role. Admins can then create Faculty and 
 python manage.py runserver
 ```
 
+- Website: http://127.0.0.1:8000/
 - API: http://127.0.0.1:8000/api/
 - Django admin: http://127.0.0.1:8000/admin/
 
@@ -100,6 +101,7 @@ The response contains a token and the user's role:
 ```json
 {
   "token": "9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b",
+  "expires_in": 1800,
   "role": "ADMIN",
   "user": { "id": 1, "username": "admin", "role": "ADMIN" }
 }
@@ -112,6 +114,10 @@ curl http://127.0.0.1:8000/api/auth/me/ \
   -H "Authorization: Token 9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b"
 ```
 
+Tokens expire after `expires_in` seconds without a request (30 minutes by default; set `TOKEN_IDLE_TIMEOUT_MINUTES` to change it), and immediately on logout. An expired token gets a `401`, and the client must log in again. The value must be a whole number of minutes, 1 or more; anything else stops the server at startup with an error naming the setting.
+
+> **Upgrading to this release:** tokens issued before session expiry was added have no recorded activity, so their age is counted from when they were created. Any such token older than the timeout is rejected on its next request, which means existing users have to log in once more.
+
 ### Endpoints
 
 **Authentication**: `/api/auth/`
@@ -119,7 +125,7 @@ curl http://127.0.0.1:8000/api/auth/me/ \
 | Method | Path | Who | Purpose |
 |---|---|---|---|
 | POST | `/api/auth/register/` | Anyone | Student sign-up with email and/or roll number |
-| POST | `/api/auth/login/` | Anyone | Get a token and role |
+| POST | `/api/auth/login/` | Anyone | Get a token and role (`423` while the account is locked) |
 | POST | `/api/auth/logout/` | Logged in | Invalidate the token |
 | GET | `/api/auth/me/` | Logged in | Current user and role |
 
@@ -192,16 +198,16 @@ Sprint 1 features merged into `main`:
 
 | Module | Requirements |
 |---|---|
-| Authentication & access control | OEP-F-001 registration, OEP-F-002 login, OEP-F-003 role-based access, OEP-SR-002 Argon2 hashing |
+| Authentication & access control | OEP-F-001 registration, OEP-F-002 login, OEP-F-003 role-based access, OEP-F-004 account lockout, OEP-SR-002 Argon2 hashing, OEP-SR-003 session expiry, OEP-SR-005 lockout audit |
 | Question bank | OEP-F-010 add questions, OEP-F-011 tagging and filtering, OEP-F-012 bulk import, OEP-F-013 edit/delete with exam lock |
 | Exam creation | OEP-F-020 assembly (manual or rule-based), OEP-F-021 duration and scoring, OEP-F-022 availability window |
 | Exam delivery | OEP-F-030 server-synced timer, OEP-F-031 question navigation & flags, OEP-F-032 auto-submit on timeout, OEP-F-033 manual submit, OEP-F-034 single-attempt rule & reattempt, OEP-F-035 periodic autosave |
 | Evaluation | OEP-F-040 objective-answer automatic grading wired to submission |
 | Administration | OEP-F-060 account management, OEP-F-061 courses and mappings, OEP-F-063 health diagnostics panel |
 | Non-Functional | OEP-NF-001 concurrent exam-start performance test (2s P90 target; measured result must be recorded), OEP-NF-002 persisted-response/session-replacement and idempotent-submit tests, OEP-NF-003 health-probe simulation (not proof of 99% scheduled-window uptime) |
-| Security | OEP-SR-004 answer keys kept out of student exam data |
+| Security | OEP-SR-004 answer keys kept out of student exam data, OEP-SR-006 role checks on every endpoint |
 
-Upcoming features include publishing exams to courses, subjective evaluation queue, results & scorecards, account lockout and audit logging. See the [issues](https://github.com/Yesh-2516/SE-Mini-Project/issues) for the full backlog.
+Upcoming features include publishing exams to courses, subjective evaluation queue, results & scorecards. See the [issues](https://github.com/Yesh-2516/SE-Mini-Project/issues) for the full backlog.
 
 Implementation choices that differ from the SRS/SAD are recorded in [deviations.md](deviations.md).
 
@@ -214,8 +220,10 @@ SE-Mini-Project/
 ├── question_bank/     # Questions, tagging, bulk import, objective grading
 ├── exam_management/   # Exams, assembly, scoring settings, availability window
 ├── exam_delivery/     # Exam sitting, server-synced timer, autosave, submission, diagnostics
+├── web/               # Website: login, dashboard, student exam page
 ├── docs/              # Database models, performance and availability reports
 ├── config/            # Django settings and root URLs
+├── deploy/            # nginx configuration for HTTPS
 ├── deviations.md      # Deviations from the SRS/SAD and integration notes
 └── requirements.txt
 ```
@@ -233,9 +241,11 @@ Before opening a pull request, run `python -m pytest` and `python manage.py chec
 
 ## Project documents
 
+- [TLS Deployment Guide (TC-Sec-01)](docs/tls_deployment.md)
 - [Software Requirements Specification](Software%20Requirements%20Specification.docx)
 - [Software Architecture and Design Specification](Software%20Architecture%20and%20Design%20Specification.docx)
 - [Software Test Plan](Software%20Test%20Plan.docx)
 - [Database Models Specification](docs/models.md)
+- [Endpoint-to-Role List (TC-Sec-06)](docs/endpoint_roles.md)
 - [Performance Verification Report (TC-Perf-01)](docs/performance_report.md)
 - [Availability Verification Report (TC-Ops-01)](docs/availability_report.md)

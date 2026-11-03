@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import authenticate, user_logged_in
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
@@ -9,6 +10,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.authentication import issue_token
+from accounts.backends import find_account
+from accounts.lockout import is_locked
 from accounts.models import User
 from accounts.permissions import IsAdmin
 from accounts.serializers import (
@@ -99,28 +103,36 @@ class LoginView(APIView):
         )
 
         if user is None:
+            account = find_account(serializer.validated_data["identifier"])
+            if account is not None and is_locked(account):
+                return Response(
+                    {"detail": "Account is temporarily locked. Try again later."},
+                    status=status.HTTP_423_LOCKED,
+                )
+
             return Response(
                 {"detail": "Invalid credentials."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        token, _ = Token.objects.get_or_create(user=user)
+        token = issue_token(user)
         user_logged_in.send(
             sender=user.__class__,
             request=request._request,
             user=user,
         )
 
-        from accounts.audit import record_audit_event
+        from accounts.audit import client_ip, record_audit_event
         record_audit_event(
             "login.success",
             actor=user,
             description="User logged in successfully",
-            ip_address=request.META.get("REMOTE_ADDR"),
+            ip_address=client_ip(request),
         )
 
         return Response({
             "token": token.key,
+            "expires_in": int(settings.TOKEN_IDLE_TIMEOUT.total_seconds()),
             "role": user.role,
             "user": UserSerializer(user).data,
         })
@@ -183,13 +195,13 @@ class ManagedAccountListCreateView(ManagedAccountMixin, generics.ListCreateAPIVi
             serializer, status.HTTP_201_CREATED
         )
         if response.status_code == status.HTTP_201_CREATED:
-            from accounts.audit import record_audit_event
+            from accounts.audit import client_ip, record_audit_event
             record_audit_event(
                 "account.created",
                 actor=request.user,
                 description="Admin created an account",
                 metadata={"role": response.data.get("role", "")},
-                ip_address=request.META.get("REMOTE_ADDR"),
+                ip_address=client_ip(request),
             )
         return response
 
@@ -208,12 +220,12 @@ class ManagedAccountDetailView(ManagedAccountMixin, generics.RetrieveUpdateAPIVi
             serializer, status.HTTP_200_OK
         )
         if response.status_code == status.HTTP_200_OK:
-            from accounts.audit import record_audit_event
+            from accounts.audit import client_ip, record_audit_event
             record_audit_event(
                 "account.updated",
                 actor=request.user,
                 description="Admin updated an account",
-                ip_address=request.META.get("REMOTE_ADDR"),
+                ip_address=client_ip(request),
             )
         return response
 
@@ -232,7 +244,7 @@ class SetAccountActiveView(ManagedAccountMixin, APIView):
         if not self.is_active:
             Token.objects.filter(user=user).delete()
 
-        from accounts.audit import record_audit_event
+        from accounts.audit import client_ip, record_audit_event
         record_audit_event(
             "account.activated" if self.is_active else "account.deactivated",
             actor=request.user,
@@ -241,7 +253,7 @@ class SetAccountActiveView(ManagedAccountMixin, APIView):
                 "target_user_id": user.pk,
                 "is_active": self.is_active,
             },
-            ip_address=request.META.get("REMOTE_ADDR"),
+            ip_address=client_ip(request),
         )
 
         return Response(ManagedAccountSerializer(user).data)

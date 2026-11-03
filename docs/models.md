@@ -20,6 +20,9 @@ Extends Django's `AbstractUser` with institutional identification and role-based
 | `first_name` | CharField(150) | Optional | Given name |
 | `last_name` | CharField(150) | Optional | Family name |
 | `is_active` | BooleanField | Default: `True` | Soft-deletion / account deactivation flag (OEP-F-060) |
+| `failed_login_attempts` | PositiveSmallIntegerField | Default: `0` | Consecutive failed logins (OEP-F-004) |
+| `locked_until` | DateTimeField | Nullable | End of the temporary lock (OEP-F-004) |
+| `last_activity_at` | DateTimeField | Nullable | Last authenticated API request, for idle expiry (OEP-SR-003) |
 | `date_joined` | DateTimeField | Auto | Account registration timestamp |
 
 ---

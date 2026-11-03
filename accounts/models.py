@@ -34,6 +34,11 @@ class User(AbstractUser):
         choices=Role.choices,
         default=Role.STUDENT,
     )
+    # Consecutive failures since the last successful login (OEP-F-004).
+    failed_login_attempts = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    # Last authenticated API request, for idle expiry (OEP-SR-003).
+    last_activity_at = models.DateTimeField(null=True, blank=True)
 
     objects = UserManager()
 

@@ -8,7 +8,7 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from exam_delivery.models import Attempt, Response
 from exam_management.models import Exam
 from exam_management.serializers import StudentExamQuestionSerializer
-from exam_management.services import ExamNotOpen, is_exam_open
+from exam_management.services import ExamNotOpen, is_exam_open, shuffle_paper
 from question_bank.grading import OBJECTIVE_QUESTION_TYPES, grade_objective_answer
 
 
@@ -149,6 +149,11 @@ def get_attempt_detail(*, attempt, student, now=None):
             "is_flagged": is_flagged,
             "is_answered": bool(submitted_answer and submitted_answer.strip()),
         })
+
+    questions_data = shuffle_paper(
+        questions_data,
+        seed=attempt.id,
+    )
 
     return {
         "attempt_id": attempt.id,
@@ -419,6 +424,11 @@ def get_question_navigator(*, attempt, student, now=None):
             "is_answered": is_answered,
             "is_flagged": is_flagged,
         })
+
+    navigator = shuffle_paper(
+        navigator,
+        seed=attempt.id,
+    )
 
     return {
         "attempt_id": attempt.id,

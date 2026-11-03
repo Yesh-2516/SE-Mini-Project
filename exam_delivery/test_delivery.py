@@ -236,6 +236,88 @@ class QuestionNavigationAndFlagTests(ExamDeliveryBaseTestCase):
         self.assertFalse(questions[self.q_tf.id]["is_flagged"])
         self.assertTrue(questions[self.q_tf.id]["is_answered"])
 
+    def test_navigator_positions_match_shuffled_exam_paper(self):
+        detail_url = f"/api/exams/{self.exam.id}/attempts/{self.attempt_id}/"
+        nav_url = f"/api/exams/{self.exam.id}/attempts/{self.attempt_id}/navigator/"
+
+        detail_res = self.client.get(detail_url)
+        nav_res = self.client.get(nav_url)
+
+        self.assertEqual(detail_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(nav_res.status_code, status.HTTP_200_OK)
+
+        paper_positions = {
+            q["question_id"]: q["position"]
+            for q in detail_res.data["questions"]
+        }
+        navigator_positions = {
+            q["question_id"]: q["position"]
+            for q in nav_res.data["questions"]
+        }
+
+        self.assertEqual(paper_positions, navigator_positions)
+
+    def test_two_students_receive_independently_shuffled_papers(self):
+        first_detail_url = (
+            f"/api/exams/{self.exam.id}/attempts/{self.attempt_id}/"
+        )
+        first_response = self.client.get(first_detail_url)
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+
+        self.client.force_authenticate(user=self.other_student)
+        second_start = self.client.post(
+            f"/api/exams/{self.exam.id}/start/"
+        )
+        self.assertEqual(
+            second_start.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        second_attempt_id = second_start.data["attempt_id"]
+        second_detail_url = (
+            f"/api/exams/{self.exam.id}/attempts/{second_attempt_id}/"
+        )
+        second_response = self.client.get(second_detail_url)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+
+        first_questions = first_response.data["questions"]
+        second_questions = second_response.data["questions"]
+
+        first_order = [
+            question["question_id"] for question in first_questions
+        ]
+        second_order = [
+            question["question_id"] for question in second_questions
+        ]
+
+        self.assertCountEqual(first_order, second_order)
+        self.assertNotEqual(first_order, second_order)
+
+        first_mcq = next(
+            q for q in first_questions
+            if q["question_id"] == self.q_mcq.id
+        )
+        second_mcq = next(
+            q for q in second_questions
+            if q["question_id"] == self.q_mcq.id
+        )
+
+        self.assertCountEqual(
+            first_mcq["options"],
+            second_mcq["options"],
+        )
+
+        # The same attempt must retain its paper after refresh.
+        self.client.force_authenticate(user=self.student)
+        refreshed_response = self.client.get(first_detail_url)
+        self.assertEqual(
+            refreshed_response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            first_questions,
+            refreshed_response.data["questions"],
+        )
 
 class AutoSubmitTimeoutTests(ExamDeliveryBaseTestCase):
     """TC-Deliver-03: Auto-submit on timeout (OEP-F-032)."""

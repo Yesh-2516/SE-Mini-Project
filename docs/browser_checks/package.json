@@ -1,0 +1,12 @@
+{
+  "name": "oep-browser-checks",
+  "private": true,
+  "description": "Browser and accessibility checks for the student website (OEP-F-030, OEP-NF-005).",
+  "scripts": {
+    "check": "node run.js"
+  },
+  "dependencies": {
+    "axe-core": "4.10.3",
+    "playwright-core": "1.56.1"
+  }
+}
