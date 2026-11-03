@@ -122,12 +122,12 @@ class LoginView(APIView):
             user=user,
         )
 
-        from accounts.audit import record_audit_event
+        from accounts.audit import client_ip, record_audit_event
         record_audit_event(
             "login.success",
             actor=user,
             description="User logged in successfully",
-            ip_address=request.META.get("REMOTE_ADDR"),
+            ip_address=client_ip(request),
         )
 
         return Response({
@@ -195,13 +195,13 @@ class ManagedAccountListCreateView(ManagedAccountMixin, generics.ListCreateAPIVi
             serializer, status.HTTP_201_CREATED
         )
         if response.status_code == status.HTTP_201_CREATED:
-            from accounts.audit import record_audit_event
+            from accounts.audit import client_ip, record_audit_event
             record_audit_event(
                 "account.created",
                 actor=request.user,
                 description="Admin created an account",
                 metadata={"role": response.data.get("role", "")},
-                ip_address=request.META.get("REMOTE_ADDR"),
+                ip_address=client_ip(request),
             )
         return response
 
@@ -220,12 +220,12 @@ class ManagedAccountDetailView(ManagedAccountMixin, generics.RetrieveUpdateAPIVi
             serializer, status.HTTP_200_OK
         )
         if response.status_code == status.HTTP_200_OK:
-            from accounts.audit import record_audit_event
+            from accounts.audit import client_ip, record_audit_event
             record_audit_event(
                 "account.updated",
                 actor=request.user,
                 description="Admin updated an account",
-                ip_address=request.META.get("REMOTE_ADDR"),
+                ip_address=client_ip(request),
             )
         return response
 
@@ -244,7 +244,7 @@ class SetAccountActiveView(ManagedAccountMixin, APIView):
         if not self.is_active:
             Token.objects.filter(user=user).delete()
 
-        from accounts.audit import record_audit_event
+        from accounts.audit import client_ip, record_audit_event
         record_audit_event(
             "account.activated" if self.is_active else "account.deactivated",
             actor=request.user,
@@ -253,7 +253,7 @@ class SetAccountActiveView(ManagedAccountMixin, APIView):
                 "target_user_id": user.pk,
                 "is_active": self.is_active,
             },
-            ip_address=request.META.get("REMOTE_ADDR"),
+            ip_address=client_ip(request),
         )
 
         return Response(ManagedAccountSerializer(user).data)

@@ -221,6 +221,7 @@ SE-Mini-Project/
 ├── exam_delivery/     # Exam sitting, server-synced timer, autosave, submission, diagnostics
 ├── docs/              # Database models, performance and availability reports
 ├── config/            # Django settings and root URLs
+├── deploy/            # nginx configuration for HTTPS
 ├── deviations.md      # Deviations from the SRS/SAD and integration notes
 └── requirements.txt
 ```
@@ -238,6 +239,7 @@ Before opening a pull request, run `python -m pytest` and `python manage.py chec
 
 ## Project documents
 
+- [TLS Deployment Guide (TC-Sec-01)](docs/tls_deployment.md)
 - [Software Requirements Specification](Software%20Requirements%20Specification.docx)
 - [Software Architecture and Design Specification](Software%20Architecture%20and%20Design%20Specification.docx)
 - [Software Test Plan](Software%20Test%20Plan.docx)
