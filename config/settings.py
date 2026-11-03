@@ -10,8 +10,11 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from datetime import timedelta
 from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -110,10 +113,22 @@ AUTHENTICATION_BACKENDS = [
 ACCOUNT_LOCKOUT_THRESHOLD = 5
 ACCOUNT_LOCKOUT_DURATION = timedelta(minutes=15)
 
+# Idle session expiry (OEP-SR-003). API tokens and Django admin sessions both
+# end after this long without a request.
+_idle_minutes = os.environ.get('TOKEN_IDLE_TIMEOUT_MINUTES', '30')
+if not _idle_minutes.strip().isdigit() or int(_idle_minutes) < 1:
+    raise ImproperlyConfigured(
+        'TOKEN_IDLE_TIMEOUT_MINUTES must be a whole number of minutes, '
+        f'1 or more (got {_idle_minutes!r}).'
+    )
+TOKEN_IDLE_TIMEOUT = timedelta(minutes=int(_idle_minutes))
+SESSION_COOKIE_AGE = int(TOKEN_IDLE_TIMEOUT.total_seconds())
+SESSION_SAVE_EVERY_REQUEST = True
+
 REST_FRAMEWORK = {
     # Token first so unauthenticated API requests get 401, not 403.
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+        'accounts.authentication.IdleExpiringTokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     # Deny by default; each view narrows this to the roles it allows.
