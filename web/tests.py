@@ -4,7 +4,7 @@ from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -95,6 +95,18 @@ class LoginPageTests(WebTestCase):
         self.assertTrue(
             AuditLog.objects.filter(event_type="login.success", actor=self.student).exists()
         )
+
+    @override_settings(TLS_ENABLED=True)
+    def test_login_behind_the_proxy_audits_the_client_address(self):
+        self.client.post(
+            reverse("web-login"),
+            {"identifier": "meera", "password": PASSWORD},
+            REMOTE_ADDR="127.0.0.1",
+            HTTP_X_FORWARDED_FOR="203.0.113.9",
+        )
+
+        entry = AuditLog.objects.get(event_type="login.success")
+        self.assertEqual(entry.ip_address, "203.0.113.9")
 
     def test_wrong_password_shows_an_error(self):
         response = self.log_in(WRONG_PASSWORD)

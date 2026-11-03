@@ -30,6 +30,7 @@
     warned: new Set(),
     finished: false,
     saving: false,
+    syncing: false,
     saveTimer: null,
     tickTimer: null,
     syncTimer: null,
@@ -144,7 +145,9 @@
       if (seconds <= limit && !state.warned.has(limit)) {
         state.warned.add(limit);
         if (seconds > 0) {
-          elements["time-warning"].textContent = Math.ceil(limit / 60) + " minutes or less remaining.";
+          const minutes = Math.ceil(limit / 60);
+          elements["time-warning"].textContent =
+            minutes + (minutes === 1 ? " minute" : " minutes") + " or less remaining.";
         }
       }
     });
@@ -158,9 +161,11 @@
   }
 
   async function syncTimer() {
-    if (state.finished || state.attemptId === null) {
+    // At 0:00 tick() calls this every second; only one request at a time.
+    if (state.finished || state.attemptId === null || state.syncing) {
       return;
     }
+    state.syncing = true;
     try {
       // Reading the timer after the deadline makes the server auto-submit.
       const data = await api("GET", attemptPath("timer/"));
@@ -171,6 +176,8 @@
       setRemaining(data.remaining_seconds);
     } catch (error) {
       handleSessionLoss(error);
+    } finally {
+      state.syncing = false;
     }
   }
 
@@ -390,7 +397,16 @@
       }
     } catch (error) {
       elements["submit-button"].disabled = false;
-      if (!handleSessionLoss(error)) {
+      if (handleSessionLoss(error)) {
+        return;
+      }
+      if (error instanceof ApiError) {
+        // The server answered but refused, so a connection problem isn't the cause.
+        showError(
+          "Your exam couldn't be submitted: " + error.message +
+            " Reload the page to check your answers, then try again."
+        );
+      } else {
         showError("Your exam couldn't be submitted. Check your connection and try again.");
       }
     }

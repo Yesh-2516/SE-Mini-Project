@@ -7,7 +7,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_http_methods, require_POST
 
-from accounts.audit import record_audit_event
+from accounts.audit import client_ip, record_audit_event
 from accounts.backends import find_account
 from accounts.lockout import is_locked
 from accounts.models import User
@@ -52,7 +52,7 @@ def login_page(request):
                 "login.success",
                 actor=user,
                 description="User logged in successfully",
-                ip_address=request.META.get("REMOTE_ADDR"),
+                ip_address=client_ip(request),
             )
             return redirect(safe_next_url(request))
 
