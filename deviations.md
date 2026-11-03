@@ -17,9 +17,10 @@
 
 ## 3. Integration Dependencies
 
-- The objective-grading function is implemented and tested independently.
-- Integration with actual exam attempts, submitted responses, and the submission workflow remains pending the relevant teammate implementation.
-- End-to-end grading has not yet been verified.
+- F-040 objective grading is integrated with submitted exam attempts. Objective responses are automatically evaluated and objective scores are stored during submission.
+- F-043 final-score calculation is implemented independently in the `evaluation` app.
+- Integration of F-043 with faculty subjective evaluation (F-042) remains pending.
+- End-to-end final-score calculation for mixed objective and subjective exams must be verified after F-042 integration.
 
 ## 4. Follow-up
 
@@ -47,8 +48,38 @@
 - Website (OEP-F-030, OEP-NF-005): the `web` app serves login, a dashboard and the student exam page using Django templates and Bootstrap. It logs in with a Django session rather than an API token, through the same backend, so lockout and idle expiry still apply. The exam page calls the existing delivery API, so all timing, saving and grading stays on the server. Until OEP-F-024 adds publishing and course assignment, every open exam with questions is listed for every student. The timer is kept in sync by polling every 30 seconds, the SAD's fallback, rather than by WebSocket. Faculty and Admin only see a placeholder dashboard for now. Bootstrap loads from a CDN, and production will need static files served for `web/static/`.
 - Answer keys (OEP-SR-004): `exam_management.services.get_student_exam_paper()` is the only way exam questions should be served to students. It refuses to serve the paper outside the availability window (403, `ExamNotOpen`) and returns questions through `StudentExamQuestionSerializer`, which allow-lists its fields and never includes `correct_answer` (free-text question types also return no options). The student exam screen (OEP-F-030) should use this service. Callers must still check publishing and course assignment (OEP-F-024) before calling it. The project has no client-side code yet, so there is nowhere for answer keys to leak on the client.
 
+## 6. F-043: Final Attempt Score Calculation
 
-## 6. Exam Delivery & Diagnostics (OEP-F-030 — OEP-F-035, OEP-F-063, OEP-NF-001 — OEP-NF-003)
+- Created a separate `evaluation` Django app to handle final-score calculation.
+- Implemented `finalize_attempt_score(attempt)` in `evaluation/services.py`.
+- Only submitted attempts can be finalized. IN_PROGRESS and EXPIRED attempts are rejected.
+- Finalization waits until every subjective question in the exam has a corresponding response that has been evaluated.
+- Missing subjective response records also prevent finalization.
+- A response is considered pending if `evaluated_at` or `marks_obtained` is NULL. Zero marks are valid evaluated marks.
+- Objective scores are taken from the stored `Attempt.objective_score`; they are not recalculated.
+- Subjective marks are summed and added to the objective score. Both subjective and total scores are rounded to two decimal places using ROUND_HALF_UP.
+- The service updates `subjective_score`, `total_score`, and `is_graded`.
+- Repeated calls recalculate the final score, allowing faculty regrading.
+- Objective-only exams can be finalized with a subjective score of zero.
+- The service uses transaction.atomic() and select_for_update() to protect finalization. SQLite does not enforce select_for_update() row locking; production concurrency behavior should be verified with PostgreSQL.
+
+### F-042 Integration Contract
+
+- F-042 must save `marks_obtained`, `feedback`, `evaluated_by`, and `evaluated_at` when faculty evaluates a subjective response.
+- F-042 must validate awarded marks against the question's maximum marks.
+- F-042 must call `finalize_attempt_score(attempt)` after saving subjective evaluation, within the same transaction.
+- The function must also be called after regrading.
+- Other workflows must not independently update `subjective_score`, `total_score`, or `is_graded`.
+- Student scorecards must check `is_graded` before displaying `total_score`.
+- For mixed exams, the final total remains unfinalized until all subjective responses have been evaluated.
+
+### Verification
+
+- Evaluation test file: 13 passed.
+- Full project test suite: 259 passed, 160 subtests passed.
+- No new database models or migrations were introduced for F-043.
+
+## 7. Exam Delivery & Diagnostics (OEP-F-030 – OEP-F-035, OEP-F-063, OEP-NF-001 – OEP-NF-003)
 
 - Implemented by **Yashwantha R (CS614)** in the `exam_delivery` app.
 - **Data Models:**

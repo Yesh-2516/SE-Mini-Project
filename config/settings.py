@@ -87,6 +87,7 @@ INSTALLED_APPS = [
     'question_bank',
     'exam_management',
     'exam_delivery',
+    'evaluation',
     'web',
 ]
 
