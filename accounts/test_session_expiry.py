@@ -1,7 +1,13 @@
+import os
+import runpy
 from datetime import timedelta
+from pathlib import Path
+from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import override_settings
+from django.core.exceptions import ImproperlyConfigured
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.authtoken.models import Token
@@ -125,3 +131,27 @@ class SessionExpiryTests(APITestCase):
         response = self.client.get("/api/exams/")
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class IdleTimeoutSettingTests(SimpleTestCase):
+    """A bad TOKEN_IDLE_TIMEOUT_MINUTES stops startup with a clear message."""
+
+    settings_file = Path(settings.BASE_DIR) / "config" / "settings.py"
+
+    def load_settings(self, minutes):
+        with patch.dict(os.environ, {"TOKEN_IDLE_TIMEOUT_MINUTES": minutes}):
+            return runpy.run_path(str(self.settings_file))
+
+    def test_valid_value_sets_the_timeout(self):
+        loaded = self.load_settings("45")
+
+        self.assertEqual(loaded["TOKEN_IDLE_TIMEOUT"], timedelta(minutes=45))
+        self.assertEqual(loaded["SESSION_COOKIE_AGE"], 2700)
+
+    def test_bad_values_name_the_setting(self):
+        for value in ("abc", "", "0", "-5", "1.5"):
+            with self.subTest(value=value):
+                with self.assertRaisesMessage(
+                    ImproperlyConfigured, "TOKEN_IDLE_TIMEOUT_MINUTES"
+                ):
+                    self.load_settings(value)

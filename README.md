@@ -114,7 +114,9 @@ curl http://127.0.0.1:8000/api/auth/me/ \
   -H "Authorization: Token 9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b"
 ```
 
-Tokens expire after `expires_in` seconds without a request (30 minutes by default; set `TOKEN_IDLE_TIMEOUT_MINUTES` to change it), and immediately on logout. An expired token gets a `401`, and the client must log in again.
+Tokens expire after `expires_in` seconds without a request (30 minutes by default; set `TOKEN_IDLE_TIMEOUT_MINUTES` to change it), and immediately on logout. An expired token gets a `401`, and the client must log in again. The value must be a whole number of minutes, 1 or more; anything else stops the server at startup with an error naming the setting.
+
+> **Upgrading to this release:** tokens issued before session expiry was added have no recorded activity, so their age is counted from when they were created. Any such token older than the timeout is rejected on its next request, which means existing users have to log in once more.
 
 ### Endpoints
 
@@ -221,6 +223,7 @@ SE-Mini-Project/
 ├── web/               # Website: login, dashboard, student exam page
 ├── docs/              # Database models, performance and availability reports
 ├── config/            # Django settings and root URLs
+├── deploy/            # nginx configuration for HTTPS
 ├── deviations.md      # Deviations from the SRS/SAD and integration notes
 └── requirements.txt
 ```
@@ -238,6 +241,7 @@ Before opening a pull request, run `python -m pytest` and `python manage.py chec
 
 ## Project documents
 
+- [TLS Deployment Guide (TC-Sec-01)](docs/tls_deployment.md)
 - [Software Requirements Specification](Software%20Requirements%20Specification.docx)
 - [Software Architecture and Design Specification](Software%20Architecture%20and%20Design%20Specification.docx)
 - [Software Test Plan](Software%20Test%20Plan.docx)
