@@ -76,3 +76,13 @@
   - `TC-Perf-01` (OEP-NF-001): the test sends 200 exam-start requests through concurrent worker threads and reports P50/P90/P99 latency and error rate. No measured result is claimed until an actual test run is recorded.
   - `TC-Rel-01` (OEP-NF-002): autosaved responses persist across client-session replacement; idempotent submission is verified. This is not a simulated network interruption.
   - `TC-Ops-01` (OEP-NF-003): 100 consecutive probes provide a single-run health-check success rate only. Scheduled-window uptime requires timestamped monitoring evidence over the full observation period.
+
+## 7. Publishing and Course Assignment (OEP-F-024)
+
+- `Exam.status` gains `PUBLISHED` (the question-bank edit lock already looked for it). `Exam.courses` links an exam to courses; the SRS says "groups or courses", and only courses exist in this project, so groups are not modelled.
+- `POST /api/exams/<id>/courses/` (`{"course_ids": [...]}`) assigns and `DELETE /api/exams/<id>/courses/<course_id>/` removes a course. Admin may use any course. Faculty may only use courses they are mapped to; otherwise `403`. Courses can only be changed while the exam is a draft.
+- `POST /api/exams/<id>/publish/` needs at least one question, both ends of the availability window, a window that has not already closed, and at least one course. All problems are reported together in one `400`. A published exam is locked: settings, assembly and marks return `400` until it is unpublished.
+- `POST /api/exams/<id>/unpublish/` returns it to draft. This is blocked once any student has started it, so graded attempts never point at an exam whose questions or marks could change. This is stricter than the SRS wording "published or unpublished at will"; relax it in `unpublish_exam()` if the team prefers.
+- Starting an exam now also requires it to be published and assigned to a course the student is enrolled in, otherwise `403` (`exam_not_available`). The availability-window check still runs first, so closed windows still return "This exam is not open." A student who already has an in-progress attempt can still resume it.
+- `exam_management.services.get_exams_visible_to_student()` returns the exams a student may see. The student website branch (`feature/OEP-F-030-student-exam-web`) currently lists every open exam and should switch to this helper once both are merged.
+

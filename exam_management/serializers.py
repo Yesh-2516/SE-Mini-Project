@@ -8,6 +8,7 @@ class ExamCreateSerializer(serializers.ModelSerializer):
     """Validate and serialize exam details and scoring settings."""
 
     total_marks = serializers.IntegerField(read_only=True)
+    courses = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
 
     class Meta:
         model = Exam
@@ -15,6 +16,7 @@ class ExamCreateSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "status",
+            "courses",
             "duration_minutes",
             "availability_start",
             "availability_end",
@@ -92,6 +94,15 @@ class ExamCreateSerializer(serializers.ModelSerializer):
             })
 
         return attrs
+
+
+class ExamCourseAssignmentSerializer(serializers.Serializer):
+    """Validate a list of course IDs to assign to an exam (OEP-F-024)."""
+
+    course_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
 
 
 class ManualAssemblySerializer(serializers.Serializer):

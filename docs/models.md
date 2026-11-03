@@ -78,6 +78,7 @@ Assessment definition configured and scheduled by Faculty or Admin.
 | `negative_marking_enabled` | BooleanField | Default: `False` | Toggle for negative scoring scheme |
 | `negative_marks` | DecimalField(6, 2) | Default: `0.00` | Penalty deducted for incorrect objective answers |
 | `questions` | ManyToManyField(Question) | Through: `ExamQuestion` | Questions linked to this exam |
+| `courses` | ManyToManyField(Course) | Optional, related: `exams` | Courses whose enrolled students may sit the exam (OEP-F-024) |
 | `created_at` | DateTimeField | Auto now add | Creation timestamp |
 | `updated_at` | DateTimeField | Auto now | Last updated timestamp |
 

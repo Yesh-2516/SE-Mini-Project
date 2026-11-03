@@ -8,7 +8,12 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from exam_delivery.models import Attempt, Response
 from exam_management.models import Exam
 from exam_management.serializers import StudentExamQuestionSerializer
-from exam_management.services import ExamNotOpen, is_exam_open, shuffle_paper
+from exam_management.services import (
+    ExamNotOpen,
+    ensure_student_can_sit,
+    is_exam_open,
+    shuffle_paper,
+)
 from question_bank.grading import OBJECTIVE_QUESTION_TYPES, grade_objective_answer
 
 
@@ -64,6 +69,9 @@ def start_exam_attempt(*, exam, student, now=None):
     # The availability window governs creation, not resumption.
     if not is_exam_open(exam, now):
         raise ExamNotOpen()
+
+    # Only published exams assigned to the student's courses (OEP-F-024).
+    ensure_student_can_sit(exam=exam, student=student)
 
     with transaction.atomic():
         # Calculate server deadline
