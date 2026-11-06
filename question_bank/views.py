@@ -2,6 +2,7 @@
 import csv
 
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
 from django.http import HttpResponse
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
@@ -161,11 +162,37 @@ class QuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Remove links only from draft exams before deleting the question.
-        question.exam_question_links.filter(
-            exam__status="DRAFT"
-        ).delete()
+        if question.exam_responses.exists():
+            return Response(
+                {
+                    "detail": (
+                        "This question cannot be deleted because students "
+                        "have already submitted responses to it."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        question.delete()
+        try:
+            with transaction.atomic():
+                # Remove links only from draft exams before deleting.
+                question.exam_question_links.filter(
+                    exam__status="DRAFT"
+                ).delete()
+
+                question.delete()
+
+        except ProtectedError:
+            # Protect against a response or other protected reference
+            # appearing between the checks and deletion.
+            return Response(
+                {
+                    "detail": (
+                        "This question cannot be deleted because it has "
+                        "protected references."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
