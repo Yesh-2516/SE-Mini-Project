@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from exam_management.models import Exam
+from exam_management.models import Exam, StudentAnswer
 from question_bank.models import Question
 
 
@@ -14,6 +14,7 @@ class ExamCreateSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "title",
+            "course",
             "status",
             "duration_minutes",
             "availability_start",
@@ -152,3 +153,41 @@ class ExamQuestionMarksSerializer(serializers.Serializer):
 
     question_id = serializers.IntegerField(min_value=1)
     marks = serializers.IntegerField(min_value=1)
+
+class FacultyPendingAnswerSerializer(serializers.ModelSerializer):
+    student_id = serializers.IntegerField(read_only=True)
+    question_text = serializers.CharField(
+        source="question.text",
+        read_only=True
+    )
+    question_type = serializers.CharField(
+        source="question.question_type",
+        read_only=True
+    )
+
+    class Meta:
+
+
+        model = StudentAnswer
+        fields = [
+            "id",
+            "student_id",
+            "exam_id",
+            "question_id",
+            "question_text",
+            "question_type",
+            "submitted_answer",
+            "submitted_at",
+        ]
+
+
+class GradeSubjectiveAnswerSerializer(serializers.Serializer):
+    marks_awarded = serializers.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        min_value=0
+    )
+    feedback = serializers.CharField(
+        required=False,
+        allow_blank=True
+    )
