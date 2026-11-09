@@ -76,3 +76,11 @@ Roles are only the first check. Exam delivery also confirms that the attempt bel
 | `evaluation-response-grade` | `/api/evaluation/responses/<int:response_id>/` | PATCH | Faculty, Admin |
 | `result-list` | `/api/results/` | GET | Student |
 | `result-scorecard` | `/api/results/<int:attempt_id>/` | GET | Student |
+
+## Reports
+
+| Route name | Path | Methods | Allowed roles |
+|---|---|---|---|
+| `report-exam` | `/api/reports/exams/<int:exam_id>/` | GET | Faculty, Admin |
+| `report-exam-export` | `/api/reports/exams/<int:exam_id>/export/` | GET | Faculty, Admin |
+| `report-exam-questions` | `/api/reports/exams/<int:exam_id>/questions/` | GET | Faculty |
