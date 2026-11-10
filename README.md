@@ -172,7 +172,7 @@ Supported question types: `MCQ`, `TRUE_FALSE`, `FILL_IN_THE_BLANK`, `SHORT_ANSWE
 
 **Exam Delivery & Sitting**: `/api/exams/<id>/`
 
-Exam-sitting endpoints are restricted to authenticated students. A student may access only their own attempt. Faculty/admin users manage exams through the exam-management endpoints; they cannot start, autosave, flag, or submit a student sitting. If an autosave or start request detects an expired attempt, timeout submission is committed before the API returns the corresponding error. A manual submit received at or after `ends_at` is recorded with submission reason `TIMEOUT`. Re-attempt permission is consumed when the next attempt is successfully created.
+Exam-sitting endpoints are restricted to authenticated students. A student may access only their own attempt. Faculty/admin users manage exams through the exam-management endpoints; they cannot start, autosave, flag, or submit a student sitting. Timeout auto-submit is lazy: an expired attempt is submitted the next time it is accessed (start, attempt detail, timer, autosave or submit), and no background job sweeps expired attempts. If an autosave or start request detects an expired attempt, timeout submission is committed before the API returns the corresponding error. A manual submit received at or after `ends_at` is recorded with submission reason `TIMEOUT`. Re-attempt permission is consumed when the next attempt is successfully created.
 
 | Method | Path | Who | Purpose |
 |---|---|---|---|
