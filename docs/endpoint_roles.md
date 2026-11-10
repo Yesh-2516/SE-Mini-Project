@@ -67,3 +67,12 @@ Roles are only the first check. Exam delivery also confirms that the attempt bel
 | `exam-attempt-flag` | `/api/exams/<int:exam_id>/attempts/<int:attempt_id>/questions/<int:question_id>/flag/` | POST, PATCH | Student |
 | `exam-attempt-navigator` | `/api/exams/<int:exam_id>/attempts/<int:attempt_id>/navigator/` | GET | Student |
 | `exam-attempt-allow-reattempt` | `/api/exams/<int:exam_id>/attempts/<int:attempt_id>/allow-reattempt/` | POST | Faculty, Admin |
+
+## Evaluation and results
+
+| Route name | Path | Methods | Allowed roles |
+|---|---|---|---|
+| `evaluation-pending` | `/api/evaluation/pending/` | GET | Faculty, Admin |
+| `evaluation-response-grade` | `/api/evaluation/responses/<int:response_id>/` | PATCH | Faculty, Admin |
+| `result-list` | `/api/results/` | GET | Student |
+| `result-scorecard` | `/api/results/<int:attempt_id>/` | GET | Student |
