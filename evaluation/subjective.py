@@ -14,6 +14,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException, NotFound, ValidationError
 
+from accounts.audit import EVENT_EVALUATION, record_audit_event
 from evaluation.services import finalize_attempt_score
 from exam_delivery.models import Attempt, Response
 from exam_management.models import ExamQuestion
@@ -156,6 +157,7 @@ def evaluate_response(*, response_id, evaluator, marks, feedback=None, now=None)
         )
 
     regraded = response.evaluated_at is not None
+    previous_marks = response.marks_obtained
 
     response.marks_obtained = marks
     if feedback is not None:
@@ -170,6 +172,22 @@ def evaluate_response(*, response_id, evaluator, marks, feedback=None, now=None)
             "evaluated_at",
             "updated_at",
         ]
+    )
+
+    # OEP-NF-004: log the change (IDs and marks only, no answer content).
+    record_audit_event(
+        EVENT_EVALUATION,
+        actor=evaluator,
+        description="Subjective response evaluated" if not regraded else "Subjective response re-evaluated",
+        metadata={
+            "response_id": response.id,
+            "attempt_id": attempt.id,
+            "exam_id": attempt.exam_id,
+            "question_id": response.question_id,
+            "previous_marks": None if previous_marks is None else str(previous_marks),
+            "marks": str(marks),
+            "regraded": regraded,
+        },
     )
 
     outcome = finalize_attempt_score(attempt)
