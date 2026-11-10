@@ -1,6 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
-from django.db import transaction
+from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
@@ -11,6 +12,7 @@ from exam_management.models import Exam
 from exam_management.serializers import StudentExamQuestionSerializer
 from exam_management.services import ExamNotOpen, is_exam_open, shuffle_paper
 from question_bank.grading import OBJECTIVE_QUESTION_TYPES, grade_objective_answer
+from question_bank.models import Question
 
 
 class AttemptAlreadyClosed(APIException):
@@ -48,55 +50,100 @@ def start_exam_attempt(*, exam, student, now=None):
     Enforces the availability window (OEP-SR-004), single-attempt rule
     (OEP-F-034), and sets up a server-authoritative timer (OEP-F-030).
     Never exposes correct answers.
+
+    The single-attempt check and the insert run in one transaction under a
+    row lock on the student, and the database also carries a partial unique
+    constraint (one IN_PROGRESS attempt per exam and student). Two Start
+    requests sent at the same moment therefore cannot both create an
+    attempt: the second waits and then resumes the first, or, if it lost the
+    race at the constraint, resumes the winner.
     """
     now = now or timezone.now()
 
     if getattr(student, "role", None) != "STUDENT":
         raise PermissionDenied("Only students can start an exam attempt.")
 
-    existing_attempt = (
-        Attempt.objects.filter(exam=exam, student=student)
-        .order_by("-started_at")
-        .first()
-    )
-
-    if existing_attempt is not None:
-        if existing_attempt.status == Attempt.Status.IN_PROGRESS:
-            if existing_attempt.is_expired(now):
-                # Auto-submit expired attempt
-                submit_attempt(
-                    attempt=existing_attempt,
-                    student=student,
-                    reason=Attempt.SubmissionReason.TIMEOUT,
-                    now=now,
-                )
-                if not existing_attempt.allow_reattempt:
-                    record_integrity_flag(
-                        student,
-                        "second_attempt_blocked",
-                        exam_id=exam.id,
-                        attempt_id=existing_attempt.id,
-                    )
-                    raise ExamAlreadyAttempted()
-            else:
-                # An already-started attempt remains resumable even after the
-                # exam's admission window closes; its own deadline still applies.
-                return existing_attempt, False
-
-        elif not existing_attempt.allow_reattempt:
-            record_integrity_flag(
-                student,
-                "second_attempt_blocked",
-                exam_id=exam.id,
-                attempt_id=existing_attempt.id,
+    try:
+        attempt, is_new, failure = _start_or_resume_locked(
+            exam=exam, student=student, now=now
+        )
+    except IntegrityError:
+        # Lost a race at the unique constraint: another request created the
+        # in-progress attempt first. Resume it instead of failing.
+        winner = (
+            Attempt.objects.filter(
+                exam=exam,
+                student=student,
+                status=Attempt.Status.IN_PROGRESS,
             )
-            raise ExamAlreadyAttempted()
+            .order_by("-started_at")
+            .first()
+        )
+        if winner is None:
+            raise
+        return winner, False
 
-    # The availability window governs creation, not resumption.
-    if not is_exam_open(exam, now):
+    # Raised only after the transaction has committed, so a timeout
+    # auto-submit performed above is kept even when the start is refused.
+    if failure == "already_attempted":
+        # ``attempt`` is the student's existing attempt in this case.
+        record_integrity_flag(
+            student,
+            "second_attempt_blocked",
+            exam_id=exam.id,
+            attempt_id=attempt.id,
+        )
+        raise ExamAlreadyAttempted()
+    if failure == "not_open":
         raise ExamNotOpen()
+    return attempt, is_new
 
+
+def _start_or_resume_locked(*, exam, student, now):
+    """Check the attempt rules and create the attempt in one transaction.
+
+    Returns ``(attempt, is_new, failure)``. ``failure`` is None, or the
+    reason the caller must raise once the transaction has committed. When
+    ``failure`` is ``"already_attempted"``, ``attempt`` is the existing
+    attempt that blocked the start (so the caller can flag it).
+    """
     with transaction.atomic():
+        # Serialise concurrent starts by the same student. SQLite ignores row
+        # locks (it serialises writers itself); the unique constraint is the
+        # backstop on every database.
+        get_user_model()._default_manager.select_for_update().get(pk=student.pk)
+
+        existing_attempt = (
+            Attempt.objects.filter(exam=exam, student=student)
+            .order_by("-started_at")
+            .first()
+        )
+
+        if existing_attempt is not None:
+            if existing_attempt.status == Attempt.Status.IN_PROGRESS:
+                if existing_attempt.is_expired(now):
+                    # Auto-submit expired attempt
+                    submit_attempt(
+                        attempt=existing_attempt,
+                        student=student,
+                        reason=Attempt.SubmissionReason.TIMEOUT,
+                        now=now,
+                    )
+                    if not existing_attempt.allow_reattempt:
+                        return existing_attempt, False, "already_attempted"
+                else:
+                    # An already-started attempt remains resumable even after
+                    # the exam's admission window closes; its own deadline
+                    # still applies.
+                    return existing_attempt, False, None
+
+            elif not existing_attempt.allow_reattempt:
+                return existing_attempt, False, "already_attempted"
+
+        # The availability window governs creation, not resumption.
+        if not is_exam_open(exam, now):
+            return None, False, "not_open"
+
         # Calculate server deadline
         candidate_end = now + timedelta(minutes=exam.duration_minutes)
         ends_at = candidate_end
@@ -127,7 +174,7 @@ def start_exam_attempt(*, exam, student, now=None):
         ]
         Response.objects.bulk_create(responses)
 
-        return attempt, True
+        return attempt, True, None
 
 
 def get_attempt_detail(*, attempt, student, now=None):
@@ -161,12 +208,16 @@ def get_attempt_detail(*, attempt, student, now=None):
         submitted_answer = resp.submitted_answer if resp else ""
         is_flagged = resp.is_flagged if resp else False
 
-        # Options allow-list per OEP-SR-004
-        options = (
-            eq.question.options
-            if eq.question.question_type in ("MCQ", "TRUE_FALSE")
-            else []
-        )
+        # Options allow-list per OEP-SR-004. True/False always offers the two
+        # fixed choices, whatever is stored on the question, so clients render
+        # a True/False choice and not a free-text box. Free-text types get none.
+        question_type = eq.question.question_type
+        if question_type == Question.QuestionType.MCQ:
+            options = list(eq.question.options)
+        elif question_type == Question.QuestionType.TRUE_FALSE:
+            options = ["True", "False"]
+        else:
+            options = []
 
         questions_data.append({
             "question_id": eq.question_id,

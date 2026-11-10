@@ -60,6 +60,17 @@ class Attempt(models.Model):
 
     class Meta:
         ordering = ["-started_at"]
+        constraints = [
+            # OEP-F-034: a student may have at most one open sitting per exam.
+            # Enforced by the database so two simultaneous Start requests
+            # cannot both create an IN_PROGRESS attempt. Submitted attempts
+            # are unrestricted, so an allowed re-attempt keeps its history.
+            models.UniqueConstraint(
+                fields=["exam", "student"],
+                condition=models.Q(status="IN_PROGRESS"),
+                name="unique_active_attempt_per_exam_student",
+            ),
+        ]
 
     def is_expired(self, now=None):
         now = now or timezone.now()
