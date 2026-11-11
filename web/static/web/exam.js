@@ -3,7 +3,11 @@
 (function () {
   "use strict";
 
-  const SAVE_DELAY_MS = 2000; // After the last change (OEP-F-035).
+  // Answers save 2 seconds after the last change, and every 30 seconds
+  // anything still unsaved is sent again, so a missed save is never stuck
+  // waiting for the next change (OEP-F-035).
+  const SAVE_DELAY_MS = 2000;
+  const SAVE_INTERVAL_MS = 30000;
   const SAVE_RETRY_MS = 15000;
   const TIMER_SYNC_MS = 30000; // Also keeps the session from going idle.
   const WARNING_SECONDS = [300, 60];
@@ -35,6 +39,7 @@
     saveTimer: null,
     tickTimer: null,
     syncTimer: null,
+    intervalSaveTimer: null,
   };
 
   class ApiError extends Error {
@@ -94,6 +99,7 @@
   function stopTimers() {
     clearInterval(state.tickTimer);
     clearInterval(state.syncTimer);
+    clearInterval(state.intervalSaveTimer);
     clearTimeout(state.saveTimer);
   }
 
@@ -110,6 +116,7 @@
       showQuestion(0, false);
       state.tickTimer = setInterval(tick, 1000);
       state.syncTimer = setInterval(syncTimer, TIMER_SYNC_MS);
+      state.intervalSaveTimer = setInterval(save, SAVE_INTERVAL_MS);
       tick();
     } catch (error) {
       elements["start-button"].disabled = false;
@@ -332,6 +339,12 @@
     }
   }
 
+  const OFFLINE_MESSAGE = "You're offline. Answers will save when you reconnect.";
+
+  function clockTime(date) {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
   function scheduleSave(delay) {
     clearTimeout(state.saveTimer);
     state.saveTimer = setTimeout(save, delay);
@@ -350,7 +363,8 @@
     state.saving = true;
     const sent = new Map(state.unsaved);
     try {
-      await api("PUT", attemptPath("autosave/"), { responses: unsavedResponses() });
+      const data = await api("PUT", attemptPath("autosave/"), { responses: unsavedResponses() });
+      setRemaining(data.remaining_seconds);
       // Keep anything the student changed while this request was running.
       sent.forEach(function (value, questionId) {
         if (state.unsaved.get(questionId) === value) {
@@ -360,13 +374,16 @@
       if (state.unsaved.size) {
         scheduleSave(SAVE_DELAY_MS);
       } else {
-        elements["save-status"].textContent = "All answers saved";
+        elements["save-status"].textContent = "All answers saved at " + clockTime(new Date());
       }
     } catch (error) {
       if (error.status === 410) {
         finish("Time is up", "Your exam was submitted automatically with the answers saved before the deadline.");
       } else if (!handleSessionLoss(error)) {
-        elements["save-status"].textContent = "Not saved yet. Retrying...";
+        // Offline, the "online" event saves straight away on reconnecting.
+        elements["save-status"].textContent = navigator.onLine
+          ? "Not saved yet. Retrying..."
+          : OFFLINE_MESSAGE;
         scheduleSave(SAVE_RETRY_MS);
       }
     } finally {
@@ -462,6 +479,28 @@
   });
   elements["flag-button"].addEventListener("click", toggleFlag);
   elements["submit-button"].addEventListener("click", submitExam);
+
+  // Reconnecting: save at once and fetch the remaining time, which kept
+  // running on the server while the student was offline.
+  window.addEventListener("online", function () {
+    if (state.attemptId === null || state.finished) {
+      return;
+    }
+    elements["save-status"].textContent = state.unsaved.size ? "Saving..." : "All answers saved";
+    save();
+    syncTimer();
+  });
+  window.addEventListener("offline", function () {
+    if (state.attemptId !== null && !state.finished) {
+      elements["save-status"].textContent = OFFLINE_MESSAGE;
+    }
+  });
+  // Switching tabs or closing the laptop: send what's pending first.
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") {
+      save();
+    }
+  });
 
   window.addEventListener("beforeunload", function (event) {
     if (state.unsaved.size && !state.finished) {

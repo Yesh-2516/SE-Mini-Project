@@ -1,6 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
+from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -534,6 +535,47 @@ class PeriodicAutosaveTests(ExamDeliveryBaseTestCase):
         self.assertTrue(saved_questions[self.q_mcq.id]["is_flagged"])
         self.assertEqual(saved_questions[self.q_fib.id]["submitted_answer"], "three-tier")
         self.assertFalse(saved_questions[self.q_fib.id]["is_flagged"])
+
+    def test_reconnect_restores_answers_and_the_clock_kept_running(self):
+        """TC-Deliver-06: a 7-minute disconnect costs time but not answers."""
+        self.client.force_authenticate(user=self.student)
+        started = timezone.now()
+        with patch("django.utils.timezone.now", return_value=started):
+            start_res = self.client.post(f"/api/exams/{self.exam.id}/start/")
+            attempt_id = start_res.data["attempt_id"]
+            self.assertEqual(start_res.data["remaining_seconds"], 30 * 60)
+            self.client.put(
+                f"/api/exams/{self.exam.id}/attempts/{attempt_id}/autosave/",
+                {"responses": [{"question_id": self.q_fib.id, "submitted_answer": "three-tier"}]},
+                format="json",
+            )
+
+        # The student comes back seven minutes later and presses Resume.
+        with patch("django.utils.timezone.now", return_value=started + timedelta(minutes=7)):
+            resume_res = self.client.post(f"/api/exams/{self.exam.id}/start/")
+            timer_res = self.client.get(f"/api/exams/{self.exam.id}/attempts/{attempt_id}/timer/")
+
+        self.assertEqual(resume_res.status_code, status.HTTP_200_OK)
+        self.assertFalse(resume_res.data["is_new"])
+        self.assertEqual(resume_res.data["attempt_id"], attempt_id)
+        self.assertEqual(resume_res.data["remaining_seconds"], 23 * 60)
+        self.assertEqual(timer_res.data["remaining_seconds"], 23 * 60)
+        saved = {q["question_id"]: q for q in resume_res.data["questions"]}
+        self.assertEqual(saved[self.q_fib.id]["submitted_answer"], "three-tier")
+
+    def test_autosave_reports_remaining_time_so_the_page_can_resync(self):
+        self.client.force_authenticate(user=self.student)
+        attempt_id = self.client.post(f"/api/exams/{self.exam.id}/start/").data["attempt_id"]
+
+        save_res = self.client.put(
+            f"/api/exams/{self.exam.id}/attempts/{attempt_id}/autosave/",
+            {"responses": [{"question_id": self.q_fib.id, "submitted_answer": "three-tier"}]},
+            format="json",
+        )
+
+        self.assertIn("saved_at", save_res.data)
+        self.assertGreater(save_res.data["remaining_seconds"], 29 * 60)
+        self.assertLessEqual(save_res.data["remaining_seconds"], 30 * 60)
 
 
 class ReviewRegressionTests(ExamDeliveryBaseTestCase):

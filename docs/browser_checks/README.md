@@ -3,7 +3,7 @@
 Automated checks for the login, dashboard and exam pages (OEP-F-030, OEP-NF-005, TC-UX-01). They run in a real browser against a throwaway database, so `db.sqlite3` is never touched.
 
 - **Accessibility:** axe-core scans 7 screens for WCAG 2.0 and 2.1 A and AA, plus best practices.
-- **Behaviour:** a full sitting, keyboard-only use, reload and resume, autosave retry, submit errors, session loss, timeout auto-submit, script in question text, a 375px screen and a hidden future exam.
+- **Behaviour:** a full sitting, keyboard-only use, reload and resume, autosave retry, going offline and reconnecting, submit errors, session loss, timeout auto-submit, script in question text, a 375px screen and a hidden future exam.
 
 The latest results are in [results.md](results.md).
 
