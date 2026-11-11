@@ -5,7 +5,7 @@ Written by `run.js`. Don't edit by hand; run the checks again instead.
 | | |
 |---|---|
 | Date | 2026-11-11 |
-| Commit | `a8dc541` (uncommitted changes are included if there were any) |
+| Commit | `f472b92` (uncommitted changes are included if there were any) |
 | Browser | msedge 157.0.4341.46, headless |
 | axe-core | 4.10.3, tags wcag2a, wcag2aa, wcag21a, wcag21aa, best-practice |
 | Result | 14 of 14 checks passed, 0 axe violations |
