@@ -190,6 +190,9 @@ Exam-sitting endpoints are restricted to authenticated students. A student may a
 | Method | Path | Who | Purpose |
 |---|---|---|---|
 | GET | `/api/admin/diagnostics/` | Admin | Check server health, database connectivity, and platform metrics |
+| GET, HEAD | `/health/` | Anyone | Liveness check for uptime monitoring: `200 {"status": "ok"}` or `503 {"status": "unavailable"}`, nothing else |
+
+Uptime during an exam window is measured with `deploy/uptime_probe.py`; see [docs/availability_report.md](docs/availability_report.md).
 
 Admins can also open the same checks in the website: log in and choose **Check system health** on the dashboard (`/system-health/`).
 
@@ -208,7 +211,7 @@ Sprint 1 features merged into `main`:
 | Reporting | OEP-F-051 class report, OEP-F-052 PDF/Excel export, OEP-F-053 question breakdown |
 | Audit | OEP-NF-004 append-only audit log with retention and archive command |
 | Administration | OEP-F-060 account management, OEP-F-061 courses and mappings, OEP-F-063 health diagnostics panel |
-| Non-Functional | OEP-NF-001 concurrent exam-start performance test (2s P90 target; measured result must be recorded), OEP-NF-002 persisted-response/session-replacement and idempotent-submit tests, OEP-NF-003 health-probe simulation (not proof of 99% scheduled-window uptime) |
+| Non-Functional | OEP-NF-001 concurrent exam-start performance test (2s P90 target; measured result must be recorded), OEP-NF-002 persisted-response/session-replacement and idempotent-submit tests, OEP-NF-003 public `/health/` check, uptime probe and a measured 25-minute simulated exam window |
 | Security | OEP-SR-004 answer keys kept out of student exam data, OEP-SR-006 role checks on every endpoint |
 
 Upcoming features include publishing exams to courses. See the [issues](https://github.com/Yesh-2516/SE-Mini-Project/issues) for the full backlog.
