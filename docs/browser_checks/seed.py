@@ -19,7 +19,7 @@ now = timezone.now()
 # One student per check, so an attempt in one check can't affect another.
 STUDENTS = [
     "axe", "sitting", "keyboard", "resume", "retry", "submit_error",
-    "session", "timeout", "xss", "mobile", "offline",
+    "session", "timeout", "xss", "mobile", "offline", "navigator",
     # For the usability test with real people (docs/usability_test.md).
     "participant1", "participant2", "participant3",
 ]
@@ -29,6 +29,8 @@ for name in STUDENTS:
         password=PASSWORD,
         role=User.Role.STUDENT,
     )
+# For the admin screens (OEP-F-063).
+User.objects.create_user(username="admin_checks", password=PASSWORD, role=User.Role.ADMIN)
 
 
 def question(text, kind, options=(), answer="Paris"):

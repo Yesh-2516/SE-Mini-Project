@@ -46,7 +46,8 @@ Afterwards, ask:
 1. Was anything confusing?
 2. Did you know how much time you had left, and whether your answers were saved?
 3. Did you know what the flag did?
-4. Out of 5, how easy was it? (1 = very hard, 5 = very easy)
+4. Did the key under the question numbers make sense? Could you tell which questions were answered, flagged, or the one you were on?
+5. Out of 5, how easy was it? (1 = very hard, 5 = very easy)
 
 ## Pass criteria
 
@@ -72,6 +73,9 @@ axe can't check these, so do them once on the exam page:
 | Zoom to 200% | Ctrl and + until 200%. Nothing is cut off and nothing overlaps | |
 | Screen reader reads the question | With NVDA or Narrator, move to a new question. It reads the heading, then the question with its options | |
 | Time warnings are announced | Use the one-minute exam in the seed data. The 1-minute warning is read out without moving focus | |
-| Save status is announced | Change an answer. "All answers saved" is read out | |
+| Save status is announced | Change an answer. "All answers saved at" and the time is read out | |
+| Offline message is announced | Turn off Wi-Fi and change an answer. "You're offline. Answers will save when you reconnect." is read out. Turn Wi-Fi back on: the answers save | |
+| Navigator key | Zoom to 200%. The key under the question numbers is readable and the current question's underline and thick border still show | |
+| Health panel | Log in as `admin_checks`, choose "Check system health". A screen reader reads the summary, then each table row as heading and value | |
 | Focus is always visible | Tab through the whole exam page. You can always see where focus is | |
 | Question navigator contrast | axe can't judge single-digit buttons, so this was worked out by hand: Bootstrap blue `#0d6efd` against white is 4.50:1 both ways, and the flag ring `#9a5b00` is 5.43:1 | Pass, just: AA needs 4.5:1. Don't lighten the blue |
