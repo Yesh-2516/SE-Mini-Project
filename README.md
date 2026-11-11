@@ -169,6 +169,10 @@ Supported question types: `MCQ`, `TRUE_FALSE`, `FILL_IN_THE_BLANK`, `SHORT_ANSWE
 | POST | `/api/exams/<id>/assemble/` | Faculty, Admin | Pick questions by ID (`{"question_ids": [...]}`) |
 | POST | `/api/exams/<id>/generate/` | Faculty, Admin | Auto-generate by subject, topic and difficulty counts |
 | PATCH | `/api/exams/<id>/questions/<question_id>/marks/` | Faculty, Admin | Set marks for one question |
+| POST | `/api/exams/<id>/courses/` | Faculty, Admin | Assign courses (`{"course_ids": [...]}`). Faculty can only use courses they teach |
+| DELETE | `/api/exams/<id>/courses/<course_id>/` | Faculty, Admin | Remove a course from a draft exam |
+| POST | `/api/exams/<id>/publish/` | Faculty, Admin | Publish a draft exam (needs questions, an availability window and at least one course) |
+| POST | `/api/exams/<id>/unpublish/` | Faculty, Admin | Return a published exam to draft (blocked once a student has started it) |
 
 **Exam Delivery & Sitting**: `/api/exams/<id>/`
 
@@ -205,7 +209,7 @@ Sprint 1 features merged into `main`:
 |---|---|
 | Authentication & access control | OEP-F-001 registration, OEP-F-002 login, OEP-F-003 role-based access, OEP-F-004 account lockout, OEP-SR-002 Argon2 hashing, OEP-SR-003 session expiry, OEP-SR-005 lockout audit |
 | Question bank | OEP-F-010 add questions, OEP-F-011 tagging and filtering, OEP-F-012 bulk import, OEP-F-013 edit/delete with exam lock |
-| Exam creation | OEP-F-020 assembly (manual or rule-based), OEP-F-021 duration and scoring, OEP-F-022 availability window |
+| Exam creation | OEP-F-020 assembly (manual or rule-based), OEP-F-021 duration and scoring, OEP-F-022 availability window, OEP-F-024 assign to courses and publish |
 | Exam delivery | OEP-F-030 server-synced timer, OEP-F-031 question navigation & flags, OEP-F-032 auto-submit on timeout, OEP-F-033 manual submit, OEP-F-034 single-attempt rule & reattempt, OEP-F-035 periodic autosave |
 | Evaluation | OEP-F-040 objective grading, OEP-F-041 grading queue, OEP-F-042 marks and feedback, OEP-F-043 final score, OEP-F-050 scorecard API |
 | Reporting | OEP-F-051 class report, OEP-F-052 PDF/Excel export, OEP-F-053 question breakdown |
@@ -214,7 +218,7 @@ Sprint 1 features merged into `main`:
 | Non-Functional | OEP-NF-001 concurrent exam-start performance test (2s P90 target; measured result must be recorded), OEP-NF-002 persisted-response/session-replacement and idempotent-submit tests, OEP-NF-003 public `/health/` check, uptime probe and a measured 25-minute simulated exam window |
 | Security | OEP-SR-004 answer keys kept out of student exam data, OEP-SR-006 role checks on every endpoint |
 
-Upcoming features include publishing exams to courses. See the [issues](https://github.com/Yesh-2516/SE-Mini-Project/issues) for the full backlog.
+See the [issues](https://github.com/Yesh-2516/SE-Mini-Project/issues) for the full backlog.
 
 Implementation choices that differ from the SRS/SAD are recorded in [deviations.md](deviations.md).
 

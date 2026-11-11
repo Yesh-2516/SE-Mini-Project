@@ -9,6 +9,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from exam_delivery.models import Attempt, Response
+from courses.models import Course
 from exam_delivery.services import ExamNotOpen
 from exam_management.models import Exam, ExamQuestion
 from question_bank.models import Question
@@ -17,6 +18,12 @@ User = get_user_model()
 
 
 class ExamDeliveryBaseTestCase(APITestCase):
+    def publish(self, exam):
+        """Assign the exam to the test course and mark it published."""
+        exam.courses.add(self.course)
+        exam.status = Exam.Status.PUBLISHED
+        exam.save(update_fields=["status"])
+
     def setUp(self):
         self.now = timezone.now()
         self.student = User.objects.create_user(
@@ -52,6 +59,10 @@ class ExamDeliveryBaseTestCase(APITestCase):
             negative_marking_enabled=True,
             negative_marks=Decimal("0.50"),
         )
+        # Students sit exams that are published to a course they are in (OEP-F-024).
+        self.course = Course.objects.create(code="SE101", name="Software Engineering")
+        self.course.students.add(self.student, self.other_student)
+        self.publish(self.exam)
 
         # Questions
         self.q_mcq = Question.objects.create(
@@ -177,6 +188,7 @@ class ExamDeliveryTimerTests(ExamDeliveryBaseTestCase):
             availability_end=self.now + timedelta(minutes=10),
         )
         ExamQuestion.objects.create(exam=tight_exam, question=self.q_mcq, position=1, marks=2)
+        self.publish(tight_exam)
 
         self.client.force_authenticate(user=self.student)
         res = self.client.post(f"/api/exams/{tight_exam.id}/start/")
@@ -416,6 +428,7 @@ class ManualSubmitTests(ExamDeliveryBaseTestCase):
             availability_end=self.now + timedelta(hours=1),
         )
         ExamQuestion.objects.create(exam=obj_exam, question=self.q_mcq, position=1, marks=2)
+        self.publish(obj_exam)
         ExamQuestion.objects.create(exam=obj_exam, question=self.q_tf, position=2, marks=1)
 
         self.client.force_authenticate(user=self.student)
@@ -917,6 +930,14 @@ class TrueFalseOptionsTests(ExamDeliveryBaseTestCase):
         )
         ExamQuestion.objects.create(exam=self.tf_exam, question=self.bare_tf, position=1, marks=1)
         ExamQuestion.objects.create(exam=self.tf_exam, question=self.q_fib, position=2, marks=1)
+
+        # OEP-F-024: this student may sit only published exams assigned to their courses.
+        course = Course.objects.create(code="TF101", name="True/False Options Course")
+        course.students.add(self.student)
+        self.tf_exam.courses.add(course)
+        self.tf_exam.status = Exam.Status.PUBLISHED
+        self.tf_exam.save(update_fields=["status"])
+
         self.client.force_authenticate(user=self.student)
 
     def _options_by_type(self, data):
