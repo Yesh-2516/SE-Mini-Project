@@ -1,0 +1,71 @@
+{% extends "web/base.html" %}
+
+{% block title %}System health - Online Exam Portal{% endblock %}
+
+{% block content %}
+{% with d=diagnostics %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <h1 class="h3 mb-0">System health</h1>
+  <a class="btn btn-outline-primary" href="{% url 'web-system-health' %}">Check again</a>
+</div>
+
+{% if d.status == "healthy" %}
+<div class="alert alert-success" role="status">
+  <strong>Healthy.</strong> The server is running and the database is reachable.
+</div>
+{% else %}
+<div class="alert alert-danger" role="alert">
+  <strong>Problem found.</strong>
+  {% if d.database.status == "unreachable" %}The server can't reach the database.{% else %}Some database queries are failing.{% endif %}
+  Exams may not start or save until this is fixed. Details are in the server log.
+</div>
+{% endif %}
+
+<p class="small text-body-secondary">Checked {{ d.checked_at|date:"j M Y, H:i:s" }} UTC.</p>
+
+<div class="row g-4">
+  <section class="col-md-6" aria-labelledby="server-heading">
+    <h2 id="server-heading" class="h5">Server</h2>
+    <table class="table table-sm">
+      <tbody>
+        <tr><th scope="row">Status</th><td><span class="badge text-bg-success">Running</span></td></tr>
+        <tr><th scope="row">Python</th><td>{{ d.server.python_version }}</td></tr>
+        <tr><th scope="row">Django</th><td>{{ d.server.django_version }}</td></tr>
+        <tr><th scope="row">Platform</th><td class="text-break">{{ d.server.platform }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="col-md-6" aria-labelledby="database-heading">
+    <h2 id="database-heading" class="h5">Database</h2>
+    <table class="table table-sm">
+      <tbody>
+        <tr>
+          <th scope="row">Connection</th>
+          <td>
+            {% if d.database.status == "connected" %}<span class="badge text-bg-success">Connected</span>
+            {% elif d.database.status == "degraded" %}<span class="badge text-bg-warning">Some queries failing</span>
+            {% else %}<span class="badge text-bg-danger">Unreachable</span>{% endif %}
+          </td>
+        </tr>
+        <tr><th scope="row">Response time</th><td>{% if d.database.latency_ms is not None %}{{ d.database.latency_ms }} ms{% else %}Not available{% endif %}</td></tr>
+        <tr><th scope="row">Engine</th><td class="text-break">{{ d.database.engine }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<section aria-labelledby="activity-heading">
+  <h2 id="activity-heading" class="h5">Activity</h2>
+  <table class="table table-sm w-auto">
+    <tbody>
+      <tr><th scope="row">Exams in progress</th><td>{{ d.metrics.active_attempts|default_if_none:"Not available" }}</td></tr>
+      <tr><th scope="row">Exams</th><td>{{ d.metrics.total_exams|default_if_none:"Not available" }}</td></tr>
+      <tr><th scope="row">User accounts</th><td>{{ d.metrics.total_users|default_if_none:"Not available" }}</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<p><a href="{% url 'web-dashboard' %}">Back to dashboard</a></p>
+{% endwith %}
+{% endblock %}

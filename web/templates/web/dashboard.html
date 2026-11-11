@@ -32,6 +32,10 @@
   {% else %}
   <p>You have no open exams right now.</p>
   {% endif %}
+{% elif user.role == "ADMIN" %}
+  <h2 class="h5">System</h2>
+  <p><a class="btn btn-primary" href="{% url 'web-system-health' %}">Check system health</a></p>
+  <p>Other admin screens aren't built yet. Please use the API for now.</p>
 {% else %}
   <p>{{ user.get_role_display }} screens aren't built yet. Please use the API for now.</p>
 {% endif %}

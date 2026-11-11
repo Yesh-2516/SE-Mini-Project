@@ -191,6 +191,8 @@ Exam-sitting endpoints are restricted to authenticated students. A student may a
 |---|---|---|---|
 | GET | `/api/admin/diagnostics/` | Admin | Check server health, database connectivity, and platform metrics |
 
+Admins can also open the same checks in the website: log in and choose **Check system health** on the dashboard (`/system-health/`).
+
 
 ## Project status
 

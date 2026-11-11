@@ -814,7 +814,7 @@ class ReviewRegressionTests(ExamDeliveryBaseTestCase):
         )
         self.client.force_authenticate(user=admin)
         from unittest.mock import patch
-        with patch("exam_delivery.views.connection.cursor", side_effect=Exception("sensitive_db_password")):
+        with patch("exam_delivery.diagnostics.connection.cursor", side_effect=Exception("sensitive_db_password")):
             response = self.client.get("/api/admin/diagnostics/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["status"], "degraded")

@@ -1,6 +1,7 @@
 import tempfile
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -369,3 +370,74 @@ class TakeExamPageTests(WebTestCase):
 
         self.assertEqual(rejected.status_code, 403)
         self.assertEqual(started.status_code, 201)
+
+
+class SystemHealthPanelTests(WebTestCase):
+    """TC-Admin-04: the admin health diagnostics panel (OEP-F-063)."""
+
+    def setUp(self):
+        super().setUp()
+        self.admin = User.objects.create_user(
+            username="admin.rao",
+            password=PASSWORD,
+            role=User.Role.ADMIN,
+        )
+        self.url = reverse("web-system-health")
+
+    def test_admin_sees_server_and_database_status(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(self.url)
+
+        self.assertContains(response, "Healthy.")
+        self.assertContains(response, '<h2 id="server-heading" class="h5">Server</h2>', html=True)
+        self.assertContains(response, "Running")
+        self.assertContains(response, "Connected")
+        self.assertContains(response, " ms</td>")
+        self.assertEqual(response.context["diagnostics"]["metrics"]["total_exams"], 1)
+
+    def test_panel_is_never_cached(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(self.url)
+
+        self.assertIn("no-cache", response["Cache-Control"])
+
+    def test_database_failure_is_shown_without_details(self):
+        self.client.force_login(self.admin)
+
+        # Only the diagnostics module loses its connection; the session
+        # lookup still needs the database to log the admin in.
+        with patch("exam_delivery.diagnostics.connection") as connection:
+            connection.cursor.side_effect = Exception("db password=hunter2")
+            with self.assertLogs("exam_delivery.diagnostics", level="ERROR"):
+                response = self.client.get(self.url)
+
+        self.assertContains(response, "Problem found.")
+        self.assertContains(response, "reach the database")
+        self.assertContains(response, "Unreachable")
+        self.assertNotContains(response, "hunter2")
+
+    def test_admin_dashboard_links_to_the_panel(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("web-dashboard"))
+
+        self.assertContains(response, f'href="{self.url}"')
+
+    def test_student_and_faculty_are_forbidden(self):
+        for user in (self.student, self.faculty):
+            with self.subTest(role=user.role):
+                self.client.force_login(user)
+                self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_other_dashboards_do_not_link_to_the_panel(self):
+        for user in (self.student, self.faculty):
+            with self.subTest(role=user.role):
+                self.client.force_login(user)
+                self.assertNotContains(self.client.get(reverse("web-dashboard")), self.url)
+
+    def test_anonymous_visitor_is_sent_to_login(self):
+        response = self.client.get(self.url)
+
+        self.assertRedirects(response, f"{reverse('web-login')}?next={self.url}")
