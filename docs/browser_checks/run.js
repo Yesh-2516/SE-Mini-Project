@@ -148,7 +148,7 @@ async function answerCurrent(page) {
 
 async function waitForSaved(page) {
   await page.waitForFunction(function () {
-    return document.getElementById("save-status").textContent === "All answers saved";
+    return document.getElementById("save-status").textContent.startsWith("All answers saved");
   }, null, { timeout: 30000 });
 }
 
@@ -315,6 +315,42 @@ async function reloadAndResume(browser) {
       expect(restored === value, "restored '" + restored + "', expected '" + value + "'");
       await page.context().close();
       return "answer to '" + text + "' restored after reload";
+    }
+  }
+  throw new Error("question not found after reload");
+}
+
+// TC-Deliver-06: answers given while offline are saved on reconnecting, the
+// timer is fetched again, and the answers are still there after a reload.
+async function offlineAndReconnect(browser) {
+  const page = await newPage(browser);
+  await logIn(page, "student_offline");
+  await openExam(page, seed.sample);
+  await goToQuestionType(page, true);
+
+  await page.context().setOffline(true);
+  const text = await answerCurrent(page);
+  const value = await page.locator("#answer-text").inputValue();
+  await page.waitForFunction(function () {
+    return document.getElementById("save-status").textContent.startsWith("You're offline");
+  }, null, { timeout: 10000 });
+
+  const timerSynced = page.waitForRequest("**/timer/", { timeout: 10000 });
+  await page.context().setOffline(false);
+  await waitForSaved(page);
+  await timerSynced;
+
+  await page.reload();
+  await page.getByRole("button", { name: "Start exam" }).click();
+  await page.locator("#exam-sitting").waitFor();
+  const count = await page.locator("#navigator button").count();
+  for (let i = 0; i < count; i++) {
+    await page.locator("#navigator button").nth(i).click();
+    if ((await questionText(page)) === text) {
+      const restored = await page.locator("#answer-text").inputValue();
+      expect(restored === value, "restored '" + restored + "', expected '" + value + "'");
+      await page.context().close();
+      return "showed the offline message, saved and re-synced the timer on reconnecting, answer kept after reload";
     }
   }
   throw new Error("question not found after reload");
@@ -532,6 +568,7 @@ function writeResults(browserVersion, axeVersion) {
     await check("Keyboard only", function () { return keyboardOnly(browser); });
     await check("Reload and resume keeps saved answers", function () { return reloadAndResume(browser); });
     await check("Failed autosave retries", function () { return failedSaveRetries(browser); });
+    await check("Offline, then reconnect", function () { return offlineAndReconnect(browser); });
     await check("Submit failure messages", function () { return submitErrors(browser); });
     await check("Session loss mid-exam", function () { return sessionLoss(browser); });
     await check("Script in question text doesn't run", function () { return scriptNotRun(browser); });
