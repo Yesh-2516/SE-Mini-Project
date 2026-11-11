@@ -19,7 +19,7 @@ now = timezone.now()
 # One student per check, so an attempt in one check can't affect another.
 STUDENTS = [
     "axe", "sitting", "keyboard", "resume", "retry", "submit_error",
-    "session", "timeout", "xss", "mobile",
+    "session", "timeout", "xss", "mobile", "offline",
     # For the usability test with real people (docs/usability_test.md).
     "participant1", "participant2", "participant3",
 ]
