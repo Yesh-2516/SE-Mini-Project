@@ -7,6 +7,8 @@ from rest_framework.test import APITestCase
 from openpyxl import Workbook
 from django.core.files.uploadedfile import SimpleUploadedFile
 from question_bank.models import Question
+from datetime import timedelta
+from django.utils import timezone
 
 
 class QuestionModelTests(TestCase):
@@ -941,6 +943,10 @@ class QuestionDetailAPITests(APITestCase):
         authenticate_as_faculty(self.client)
 
         from exam_management.models import Exam, ExamQuestion
+        from exam_delivery.models import Attempt, Response
+
+        self.Attempt = Attempt
+        self.Response = Response
 
         self.Exam = Exam
         self.ExamQuestion = ExamQuestion
@@ -1066,6 +1072,49 @@ class QuestionDetailAPITests(APITestCase):
         self.assertFalse(
             self.ExamQuestion.objects.filter(exam=exam).exists()
         )
+
+    def test_delete_question_with_student_response_is_blocked(self):
+        exam = self.Exam.objects.create(title="Draft Test")
+        exam_question = self.ExamQuestion.objects.create(
+            exam=exam,
+            question=self.question,
+            position=1,
+        )
+
+        student = get_user_model().objects.create_user(
+            username="response_student",
+            password="testpass123",
+        )
+
+        attempt = self.Attempt.objects.create(
+            exam=exam,
+            student=student,
+            ends_at=timezone.now() + timedelta(minutes=60),
+        )
+
+        self.Response.objects.create(
+            attempt=attempt,
+            question=self.question,
+            submitted_answer="A Python framework",
+        )
+
+        response = self.client.delete(self.detail_url())
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertIn(
+            "students have already submitted responses",
+            response.data["detail"],
+        )
+        self.assertTrue(
+            Question.objects.filter(pk=self.question.pk).exists()
+        )
+        self.assertTrue(
+            self.ExamQuestion.objects.filter(pk=exam_question.pk).exists()
+        )
+
     def test_edit_question_attached_to_draft_exam(self):
         exam = self.Exam.objects.create(title="Draft Test")
         self.ExamQuestion.objects.create(

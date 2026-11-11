@@ -1,7 +1,9 @@
 from datetime import timedelta
 from decimal import Decimal
+from unittest import mock
 from unittest.mock import patch
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -820,3 +822,149 @@ class ReviewRegressionTests(ExamDeliveryBaseTestCase):
         self.assertEqual(response.data["status"], "degraded")
         self.assertEqual(response.data["database"]["status"], "unreachable")
         self.assertNotIn("sensitive_db_password", str(response.data))
+
+
+class ConcurrentStartTests(ExamDeliveryBaseTestCase):
+    """OEP-F-034: simultaneous Start requests must not create two attempts."""
+
+    def _in_progress(self, **overrides):
+        values = dict(
+            exam=self.exam,
+            student=self.student,
+            status=Attempt.Status.IN_PROGRESS,
+            started_at=self.now,
+            ends_at=self.now + timedelta(minutes=30),
+        )
+        values.update(overrides)
+        return Attempt.objects.create(**values)
+
+    def test_database_rejects_second_in_progress_attempt_for_same_exam_and_student(self):
+        self._in_progress()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                self._in_progress()
+
+        self.assertEqual(Attempt.objects.filter(exam=self.exam, student=self.student).count(), 1)
+
+    def test_constraint_allows_new_attempt_once_previous_one_is_closed(self):
+        self._in_progress(status=Attempt.Status.SUBMITTED, submitted_at=self.now)
+        self._in_progress()
+
+        self.assertEqual(Attempt.objects.filter(exam=self.exam, student=self.student).count(), 2)
+
+    def test_constraint_does_not_block_other_students_or_other_exams(self):
+        self._in_progress()
+        self._in_progress(student=self.other_student)
+        other_exam = Exam.objects.create(
+            title="Another Exam",
+            duration_minutes=30,
+            availability_start=self.now - timedelta(minutes=10),
+            availability_end=self.now + timedelta(hours=2),
+        )
+        self._in_progress(exam=other_exam)
+
+        self.assertEqual(Attempt.objects.filter(status=Attempt.Status.IN_PROGRESS).count(), 3)
+
+    def test_start_request_that_loses_the_race_resumes_the_winning_attempt(self):
+        winner = {}
+
+        def lose_race(**kwargs):
+            # Another request commits its attempt after this one passed the
+            # check; this request then hits the unique constraint.
+            winner["attempt"] = self._in_progress()
+            raise IntegrityError("duplicate in-progress attempt")
+
+        self.client.force_authenticate(user=self.student)
+        with mock.patch("exam_delivery.services._start_or_resume_locked", side_effect=lose_race):
+            response = self.client.post(f"/api/exams/{self.exam.id}/start/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["is_new"])
+        self.assertEqual(response.data["attempt_id"], winner["attempt"].id)
+        self.assertEqual(Attempt.objects.filter(exam=self.exam, student=self.student).count(), 1)
+
+    def test_integrity_error_without_a_winning_attempt_is_not_swallowed(self):
+        self.client.force_authenticate(user=self.student)
+        with mock.patch(
+            "exam_delivery.services._start_or_resume_locked",
+            side_effect=IntegrityError("unrelated integrity failure"),
+        ):
+            with self.assertRaises(IntegrityError):
+                self.client.post(f"/api/exams/{self.exam.id}/start/")
+
+
+class TrueFalseOptionsTests(ExamDeliveryBaseTestCase):
+    """True/False questions must reach the client with True and False options."""
+
+    def setUp(self):
+        super().setUp()
+        # Created the way the question-bank API allows: no options stored.
+        self.bare_tf = Question.objects.create(
+            text="A unit test exercises one small piece of behaviour.",
+            question_type=Question.QuestionType.TRUE_FALSE,
+            options=[],
+            correct_answer="True",
+            subject="Software Engineering",
+            topic="Testing",
+            difficulty=Question.Difficulty.EASY,
+        )
+        self.tf_exam = Exam.objects.create(
+            title="True/False Exam",
+            duration_minutes=30,
+            availability_start=self.now - timedelta(minutes=10),
+            availability_end=self.now + timedelta(hours=2),
+        )
+        ExamQuestion.objects.create(exam=self.tf_exam, question=self.bare_tf, position=1, marks=1)
+        ExamQuestion.objects.create(exam=self.tf_exam, question=self.q_fib, position=2, marks=1)
+        self.client.force_authenticate(user=self.student)
+
+    def _options_by_type(self, data):
+        return {q["question_type"]: q["options"] for q in data["questions"]}
+
+    def test_start_returns_true_false_options_when_none_are_stored(self):
+        response = self.client.post(f"/api/exams/{self.tf_exam.id}/start/")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        options = self._options_by_type(response.data)
+        self.assertEqual(options[Question.QuestionType.TRUE_FALSE], ["True", "False"])
+        self.assertEqual(options[Question.QuestionType.FILL_IN_THE_BLANK], [])
+
+    def test_resume_and_detail_return_true_false_options_when_none_are_stored(self):
+        first = self.client.post(f"/api/exams/{self.tf_exam.id}/start/")
+        resumed = self.client.post(f"/api/exams/{self.tf_exam.id}/start/")
+        detail = self.client.get(
+            f"/api/exams/{self.tf_exam.id}/attempts/{first.data['attempt_id']}/"
+        )
+
+        self.assertEqual(resumed.status_code, status.HTTP_200_OK)
+        self.assertFalse(resumed.data["is_new"])
+        for payload in (resumed.data, detail.data):
+            self.assertEqual(
+                self._options_by_type(payload)[Question.QuestionType.TRUE_FALSE],
+                ["True", "False"],
+            )
+
+    def test_true_false_options_are_fixed_even_if_stored_options_differ(self):
+        self.bare_tf.options = ["true", "false", "maybe"]
+        self.bare_tf.save(update_fields=["options"])
+
+        response = self.client.post(f"/api/exams/{self.tf_exam.id}/start/")
+
+        self.assertEqual(
+            self._options_by_type(response.data)[Question.QuestionType.TRUE_FALSE],
+            ["True", "False"],
+        )
+
+    def test_true_false_answer_selected_from_options_is_graded(self):
+        start = self.client.post(f"/api/exams/{self.tf_exam.id}/start/")
+        attempt_id = start.data["attempt_id"]
+
+        submit = self.client.post(
+            f"/api/exams/{self.tf_exam.id}/attempts/{attempt_id}/submit/",
+            {"responses": [{"question_id": self.bare_tf.id, "submitted_answer": "True"}]},
+            format="json",
+        )
+
+        self.assertEqual(submit.status_code, status.HTTP_200_OK)
+        self.assertEqual(Decimal(submit.data["objective_score"]), Decimal("1.00"))

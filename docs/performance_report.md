@@ -3,7 +3,7 @@
 - **Test Case:** `TC-Perf-01`
 - **Requirement:** Standard exam-start requests should complete within 2 seconds at the 90th percentile under the configured test load; the system should be evaluated with 200 concurrent exam-start requests.
 - **Test:** `exam_delivery.test_nfr.NonFunctionalRequirementsTests.test_tc_perf_01_performance_200_concurrent_requests`
-- **Status:** Pending execution in the target CI/database environment.
+- **Status:** **Pending.** No measured run has been recorded. The test is skipped on SQLite, and SQLite is the only database configured in `config/settings.py` and used by the CI workflow, so the test has not yet been executed anywhere. It needs a PostgreSQL (row-locking) database.
 
 ## Method
 
@@ -13,7 +13,19 @@ The test reports P50, P90, P99, and error rate from the measured run. The P90 as
 
 ## Results
 
-No measured values are stated in this document. Populate this section from the `PERF_METRICS` line produced by an actual run, including the database backend, host/runner, Python version, worker count, and test date. The test prints these metadata alongside the `PERF_METRICS` measurements. Results from SQLite and a developer laptop must not be represented as production capacity evidence.
+No measured values are stated in this document because no run has been recorded yet.
+
+| Date | Database | Runner | Python | Workers | P50 | P90 | P99 | Error rate | Outcome |
+|---|---|---|---|---|---|---|---|---|---|
+| Not run | PostgreSQL | - | - | 200 | - | - | - | - | Pending |
+
+### Recording a run
+
+1. Point `DATABASES["default"]` at a PostgreSQL database, using a local settings change that is not committed (`config/settings.py` currently defines SQLite only; `psycopg` is already in `requirements.txt`).
+2. Run `python -m pytest exam_delivery/test_nfr.py -k tc_perf_01 -s`. The `-s` flag is needed to see the `PERF_METRICS` line on a passing run.
+3. Replace the "Not run" row above with the values from the `PERF_METRICS` line, which also prints the database backend, runner, Python version, worker count and test date, and note whether the P90 assertion (2 seconds) passed.
+
+Results from a developer laptop must not be represented as production capacity evidence.
 
 ## Limitations
 

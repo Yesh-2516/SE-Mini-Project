@@ -90,14 +90,18 @@
   - Remaining time is calculated strictly relative to the server clock (`ends_at - now`).
   - Device clock alteration or page reload on the client does not change the server timer.
   - Starting an exam while an active, unexpired sitting exists returns the current sitting (resuming with the accurate remaining countdown).
+- **True/False options (OEP-SR-004):** start, resume and attempt-detail responses always return `["True", "False"]` as the options of a True/False question, whatever is stored on the question. The question bank does not require options on True/False questions, and before this change a question saved without them was returned with no options, so the exam page (`web/static/web/exam.js`, which shows radio buttons only when `options` is non-empty) displayed a text box. MCQ options are returned as stored (shuffled per attempt) and the other types get none.
 - **Auto-Submit on Timeout (OEP-F-032, TC-Deliver-03):**
-  - Automatically submits when `now >= ends_at`, setting status to `SUBMITTED` and reason to `TIMEOUT`.
+  - Auto-submit is **lazy**: it happens only when an attempt past `ends_at` is next touched, through the start (resume), attempt-detail, timer, autosave or submit endpoints. The attempt is then set to `SUBMITTED` with reason `TIMEOUT` and its objective answers are graded.
+  - Nothing sweeps expired attempts. There is no scheduled job or background worker, so an expired attempt that nobody opens stays `IN_PROGRESS` in the database with no score until it is next accessed, and the diagnostics `active_attempts` count includes such attempts. A periodic sweep (for example a management command run by a scheduler) is not implemented.
+  - The deadline is still enforced meanwhile: `ends_at` is set on the server, answers sent after it are ignored, and `remaining_seconds` is `0`.
   - Once submitted, further attempts to autosave or alter answers return `410 Gone`.
 - **Manual Submit (OEP-F-033, TC-Deliver-04):**
   - Finalizes attempt with reason `MANUAL`, closing further answer changes.
   - Automatically evaluates objective answers (MCQ, True/False, Fill in the Blank) immediately via `grade_objective_answer` (OEP-F-040).
 - **Single-Attempt Rule & Re-Attempt Allowance (OEP-F-034, TC-Deliver-05):**
   - Second attempt on completed exam is rejected with `403 Forbidden` (`ExamAlreadyAttempted`).
+  - Simultaneous Start requests cannot create two attempts: the check and the insert run in one transaction under a row lock on the student, and a partial unique constraint (`unique_active_attempt_per_exam_student`, migration `0002`) allows only one `IN_PROGRESS` attempt per exam and student. A request that loses the race resumes the winning attempt. Row locks are ignored on SQLite, which serialises writers itself, so the constraint is the protection there.
   - Faculty or Admin can explicitly permit a re-attempt via `POST /api/exams/<id>/attempts/<attempt_id>/allow-reattempt/` (`allow_reattempt = True`).
 - **Question Navigation & Flag for Review (OEP-F-031, TC-Deliver-02):**
   - Students can toggle `is_flagged` on any question via `POST /api/exams/<id>/attempts/<attempt_id>/questions/<question_id>/flag/`.
@@ -108,6 +112,35 @@
 - **Health Diagnostics Panel (OEP-F-063, TC-Admin-04):**
   - Admin-only endpoint `GET /api/admin/diagnostics/` reports server operational status, database connectivity status, DB query latency, and live counts of active attempts, exams, and users.
 - **Non-Functional Requirements:**
-  - `TC-Perf-01` (OEP-NF-001): the test sends 200 exam-start requests through concurrent worker threads and reports P50/P90/P99 latency and error rate. No measured result is claimed until an actual test run is recorded.
+  - `TC-Perf-01` (OEP-NF-001): the test sends 200 exam-start requests through concurrent worker threads and reports P50/P90/P99 latency and error rate. No measured result is claimed until an actual test run is recorded: the run is still pending, because the test is skipped on SQLite, the only database configured in `config/settings.py` and used by CI. See `docs/performance_report.md`.
   - `TC-Rel-01` (OEP-NF-002): autosaved responses persist across client-session replacement; idempotent submission is verified. This is not a simulated network interruption.
   - `TC-Ops-01` (OEP-NF-003): 100 consecutive probes provide a single-run health-check success rate only. Scheduled-window uptime requires timestamped monitoring evidence over the full observation period.
+
+## 8. Subjective Evaluation and Scorecards (OEP-F-041, OEP-F-042, OEP-F-050)
+
+- Implemented in the `evaluation` app (`subjective.py`, `scorecard.py`, `views.py`, `urls.py`). No new models or migrations: the existing `Response` fields (`marks_obtained`, `feedback`, `evaluated_by`, `evaluated_at`) are used.
+- **Grading queue (F-041):** `GET /api/evaluation/pending/` (Faculty, Admin) returns pending subjective responses grouped per exam; `?exam_id=` narrows it to one exam. A response is pending while its attempt is submitted, it is not an objective type, and `evaluated_at` or `marks_obtained` is empty. This matches the pending rule in `finalize_attempt_score`, so a graded response leaves the queue.
+- **Deviation:** exams are not linked to courses or to a faculty owner yet (OEP-F-024), so "the relevant faculty member" cannot be resolved. Every Faculty and Admin user sees all pending responses. Once exams are assigned to courses, filter the queue by the faculty member's courses in `get_grading_queue`.
+- **Evaluate (F-042):** `PATCH /api/evaluation/responses/<response_id>/` with `marks` (required, two decimal places) and `feedback` (optional). Marks must be between 0 and the question's marks in that exam, otherwise `400`. Objective responses are rejected (`400`) and responses of attempts that are not submitted return `409`. Omitting `feedback` keeps the existing feedback; sending an empty string clears it. Re-evaluating a response is allowed (regrading) and is reported as `regraded: true`.
+- `evaluate_response` calls `finalize_attempt_score` in the same transaction, which completes the F-042 integration contract in section 6. The response body reports `attempt.finalized` and the pending count, plus the final scores once the attempt is complete.
+- **Scorecard (F-050):** `GET /api/results/<attempt_id>/` returns total, objective and subjective score, the maximum score and per-question marks, answers and feedback. It returns `409` until the attempt `is_graded`, and `403` for any student other than the owner. `GET /api/results/` lists the student's own graded attempts. Correct answers are never included (OEP-SR-004).
+- The scorecard is an API only; there is no page for it in the `web` app yet.
+
+## 9. Reports, Export and Question Breakdown (OEP-F-051, OEP-F-052, OEP-F-053)
+
+- Implemented in the new `reports` app (`services.py`, `exports.py`, `views.py`, `urls.py`). No models or migrations.
+- **Class report (F-051):** `GET /api/reports/exams/<exam_id>/` (Faculty, Admin) returns the average, highest and lowest score, the maximum score, a 10-bucket distribution (0-10% ... 90-100%; lower bound inclusive, upper exclusive, 100% joins the last bucket) and the per-student results, best score first.
+- **Deviation:** the report is per exam, not per course. Exams are not linked to courses yet (OEP-F-024), so a course-level report cannot be built. Add a course filter once exams are assigned to courses.
+- Only each student's most recent submitted and fully graded attempt counts. Attempts still waiting for evaluation are not counted and are reported as `pending_evaluation`. Averages are rounded to two decimals (ROUND_HALF_UP). An exam with no graded results returns `null` for average, highest and lowest.
+- **Export (F-052):** `GET /api/reports/exams/<exam_id>/export/?export_format=pdf|xlsx` (Faculty, Admin) downloads the report. The parameter is `export_format` because Django REST framework reserves `format`. Both files are built from the same data as the on-screen report, so they always match. The Excel file has Summary, Distribution and Results sheets; text cells are always stored as text, so a name starting with `=` can never become a formula. The PDF is generated directly (fixed-width text, paginated) so no new package is needed; characters outside Latin-1 appear as `?` in the PDF but are kept in Excel. Only this report is exportable for now; the question breakdown is not.
+- **Question breakdown (F-053):** `GET /api/reports/exams/<exam_id>/questions/` is restricted to Faculty (Admin gets 403), as the acceptance criteria say. "Got it right" means full marks on the question, for every question type; `average_marks` shows partial credit. Answer keys are never included. Like F-041, no faculty-to-exam link exists yet, so every Faculty user can open the breakdown of any exam.
+
+## 10. Audit Logging and Retention (OEP-NF-004)
+
+- `AuditLog` (existing model) is now append-only: editing or deleting an entry, or using `update()` / `delete()` / `bulk_update()` on the queryset, raises `AuditLogImmutable`. No migration was needed.
+- The four action types are logged with the user (`actor`), action (`event_type`) and timestamp (`created_at`): logins (`login.success`, plus the existing `account.locked`), submissions (`exam.submitted`), evaluation changes (`evaluation.updated`, including previous and new marks) and integrity flags (`integrity.flag`). Only IDs, scores and reasons are logged; answers and feedback text never are.
+- **Deviation:** camera/biometric proctoring is out of scope, so no client-side integrity signal exists. Integrity flags are the events the server can detect itself: a student reaching for another student's attempt (`foreign_attempt_access`) and a blocked second attempt (`second_attempt_blocked`). `record_integrity_flag()` in `accounts/audit.py` is the single place to add more. Admins can review them with `?event_type=integrity.flag`.
+- **Retention:** `AUDIT_LOG_RETENTION_DAYS` (default 400, environment variable of the same name) is raised to 365 if set lower, so an entry is never kept for less than a year. `purge_expired()` refuses a cutoff inside the retention period.
+- **Archival:** `python manage.py archive_audit_logs [--archive-dir DIR] [--dry-run]` writes entries older than the retention period to a JSON Lines file, checks the line count, then removes them and logs an `audit.archived` entry. It is not scheduled automatically: run it from cron, e.g. weekly.
+- **Retrieval:** `GET /api/admin/users/audit-logs/` (Admin) now accepts `event_type`, `actor`, `since`, `until` (ISO date or date-time), `limit` (default 100, at most 500) and `offset`.
+- Deleting a user would still set `actor` to null on that user's entries (a database-level cascade). Accounts are deactivated rather than deleted in this system, so this does not happen in normal use.

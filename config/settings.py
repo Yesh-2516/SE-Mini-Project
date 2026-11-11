@@ -88,6 +88,7 @@ INSTALLED_APPS = [
     'exam_management',
     'exam_delivery',
     'evaluation',
+    'reports',
     'web',
 ]
 
@@ -222,3 +223,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# OEP-NF-004: audit-log entries are kept for at least one academic year.
+# Values under 365 days are raised to 365 (see accounts.audit_models).
+AUDIT_LOG_RETENTION_DAYS = int(os.environ.get('AUDIT_LOG_RETENTION_DAYS', '400'))

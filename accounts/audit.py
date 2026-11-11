@@ -2,6 +2,13 @@ from django.conf import settings
 
 from accounts.audit_models import AuditLog
 
+# The four action types OEP-NF-004 requires. Logins are recorded as
+# "login.success" (plus "account.locked" for lockouts, see accounts.lockout).
+EVENT_LOGIN = "login.success"
+EVENT_SUBMISSION = "exam.submitted"
+EVENT_EVALUATION = "evaluation.updated"
+EVENT_INTEGRITY_FLAG = "integrity.flag"
+
 
 def client_ip(request):
     """The client's IP address, for audit records.
@@ -29,11 +36,25 @@ def record_audit_event(
     metadata=None,
     ip_address=None,
 ):
-    """Record a security or administrative event without secrets."""
+    """Record a security or administrative event without secrets.
+
+    Never put passwords, tokens or answer content in ``metadata``: only IDs,
+    scores and other facts needed to follow what happened.
+    """
     return AuditLog.objects.create(
         actor=actor,
         event_type=event_type,
         description=description,
         metadata=metadata or {},
         ip_address=ip_address,
+    )
+
+
+def record_integrity_flag(actor, reason, **details):
+    """Log a suspicious action as an integrity flag (OEP-NF-004, OEP-F-062)."""
+    return record_audit_event(
+        EVENT_INTEGRITY_FLAG,
+        actor=actor,
+        description=f"Integrity flag: {reason}",
+        metadata={"reason": reason, **details},
     )

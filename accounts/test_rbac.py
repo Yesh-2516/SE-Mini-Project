@@ -29,6 +29,9 @@ STUDENT_EXAM_ROUTES = {
     "exam-attempt-navigator",
 }
 
+# Student-only scorecard routes (OEP-F-050).
+STUDENT_RESULT_ROUTES = {"result-list", "result-scorecard"}
+
 
 ENDPOINT_ROLES_DOC = settings.BASE_DIR / "docs" / "endpoint_roles.md"
 DOC_ROW = re.compile(r"^\| `([\w-]+)` \| `(.+?)` \| (.+?) \| (.+?) \|$", re.MULTILINE)
@@ -115,7 +118,12 @@ class EndpointRegistryTests(APITestCase):
         self.client.force_authenticate(user=self.student)
 
         for route, pattern in iter_api_routes():
-            if pattern.name in PUBLIC_ROUTES | ANY_ROLE_ROUTES | STUDENT_EXAM_ROUTES:
+            if pattern.name in (
+                PUBLIC_ROUTES
+                | ANY_ROLE_ROUTES
+                | STUDENT_EXAM_ROUTES
+                | STUDENT_RESULT_ROUTES
+            ):
                 continue
             path = concrete_path(route)
             for method in implemented_methods(view_class(pattern)):
