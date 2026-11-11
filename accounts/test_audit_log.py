@@ -20,6 +20,7 @@ from accounts.audit_models import (
     MINIMUM_RETENTION_DAYS,
     retention_days,
 )
+from courses.models import Course
 from exam_management.models import Exam, ExamQuestion
 from question_bank.models import Question
 
@@ -101,6 +102,11 @@ class KeyActionLoggingTests(APITestCase):
             availability_start=now - timedelta(minutes=5),
             availability_end=now + timedelta(hours=1),
         )
+        course = Course.objects.create(code="AUDIT101", name="Audit Course")
+        course.students.add(self.student)
+        self.exam.courses.add(course)
+        self.exam.status = Exam.Status.PUBLISHED
+        self.exam.save(update_fields=["status"])
         self.question = Question.objects.create(
             text="Explain inheritance.",
             question_type=Question.QuestionType.SHORT_ANSWER,

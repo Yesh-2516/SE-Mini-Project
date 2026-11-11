@@ -888,6 +888,14 @@ class TrueFalseOptionsTests(ExamDeliveryBaseTestCase):
         )
         ExamQuestion.objects.create(exam=self.tf_exam, question=self.bare_tf, position=1, marks=1)
         ExamQuestion.objects.create(exam=self.tf_exam, question=self.q_fib, position=2, marks=1)
+
+        # OEP-F-024: this student may sit only published exams assigned to their courses.
+        course = Course.objects.create(code="TF101", name="True/False Options Course")
+        course.students.add(self.student)
+        self.tf_exam.courses.add(course)
+        self.tf_exam.status = Exam.Status.PUBLISHED
+        self.tf_exam.save(update_fields=["status"])
+
         self.client.force_authenticate(user=self.student)
 
     def _options_by_type(self, data):

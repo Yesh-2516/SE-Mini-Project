@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from courses.models import Course
 from exam_delivery.models import Attempt, Response
 from exam_management.models import Exam, ExamQuestion
 from question_bank.models import Question
@@ -35,6 +36,13 @@ class ObjectiveGradingCloseOutTests(APITestCase):
             negative_marking_enabled=True,
             negative_marks=Decimal("0.50"),
         )
+
+        # OEP-F-024: students may sit only published exams assigned to their courses.
+        course = Course.objects.create(code="OBJ101", name="Objective Grading Course")
+        course.students.add(self.student)
+        self.exam.courses.add(course)
+        self.exam.status = Exam.Status.PUBLISHED
+        self.exam.save(update_fields=["status"])
 
         self.question = Question.objects.create(
             text="What does CPU stand for?",

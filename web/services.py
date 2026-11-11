@@ -3,7 +3,10 @@ from django.utils import timezone
 
 from exam_delivery.models import Attempt
 from exam_management.models import Exam
-from exam_management.services import is_exam_open
+from exam_management.services import (
+    get_exams_visible_to_student,
+    is_exam_open,
+)
 
 
 def get_latest_attempts(student):
@@ -17,9 +20,8 @@ def get_latest_attempts(student):
 def get_visible_exams(*, student, now=None, latest_attempts=None):
     """Return the exams a student may see and open.
 
-    Publishing and course assignment (OEP-F-024) don't exist yet, so every
-    open exam with questions is visible to every student. An exam they are
-    still sitting stays visible after its window closes.
+    Students see only published exams assigned to their own courses.
+    An exam they are still sitting stays visible after its window closes.
     """
     now = now or timezone.now()
     if latest_attempts is None:
@@ -32,9 +34,11 @@ def get_visible_exams(*, student, now=None, latest_attempts=None):
         and not attempt.is_expired(now)
     ]
 
+    sittable_ids = get_exams_visible_to_student(student).values("pk")
     return (
         Exam.objects.filter(
             Q(
+                pk__in=sittable_ids,
                 availability_start__lte=now,
                 availability_end__gt=now,
                 exam_questions__isnull=False,

@@ -7,6 +7,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from courses.models import Course
 from evaluation.testing import EvaluationWorldMixin, make_question
 from exam_management.models import Exam, ExamQuestion
 from question_bank.models import Question
@@ -188,6 +189,13 @@ class EndToEndTests(EvaluationWorldMixin, APITestCase):
         self.exam.availability_start = now - timedelta(minutes=5)
         self.exam.availability_end = now + timedelta(hours=1)
         self.exam.save()
+
+        # OEP-F-024: the student may sit only published exams assigned to their courses.
+        course = Course.objects.create(code="E2E101", name="Evaluation End-to-End")
+        course.students.add(self.student)
+        self.exam.courses.add(course)
+        self.exam.status = Exam.Status.PUBLISHED
+        self.exam.save(update_fields=["status"])
 
     def test_full_flow(self):
         # Student sits and submits the exam.

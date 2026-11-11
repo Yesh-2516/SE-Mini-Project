@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.audit_models import AuditLog
+from courses.models import Course
 from exam_delivery.models import Attempt
 from exam_management.models import Exam, ExamQuestion
 from question_bank.models import Question
@@ -42,6 +43,17 @@ class WebTestCase(TestCase):
             availability_start=self.now + timedelta(minutes=starts),
             availability_end=self.now + timedelta(minutes=ends),
         )
+
+        # OEP-F-024: each helper-created web test exam is published and assigned to its student's course.
+        course = Course.objects.create(
+            code=f"WEB{exam.pk:04d}",
+            name=f"{title} Course",
+        )
+        course.students.add(self.student)
+        exam.courses.add(course)
+        exam.status = Exam.Status.PUBLISHED
+        exam.save(update_fields=["status"])
+
         if with_question:
             question = Question.objects.create(
                 text="Pick one",
