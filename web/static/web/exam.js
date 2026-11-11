@@ -16,7 +16,8 @@
     "exam-error", "exam-intro", "exam-sitting", "exam-finished", "start-button",
     "timer", "save-status", "time-warning", "question-heading", "question-marks",
     "question-body", "previous-button", "next-button", "flag-button", "navigator",
-    "progress", "submit-button", "finished-heading", "finished-message",
+    "progress", "next-flagged-button", "submit-button", "finished-heading",
+    "finished-message",
   ].forEach(function (id) {
     elements[id] = document.getElementById(id);
   });
@@ -304,6 +305,20 @@
     }).length;
     elements.progress.textContent =
       answered + " of " + state.questions.length + " answered, " + flagged + " flagged (*).";
+    elements["next-flagged-button"].disabled = nextFlaggedIndex() === -1;
+  }
+
+  // The next flagged question after the one on screen, wrapping round to
+  // the start. Returns -1 when nothing else is flagged.
+  function nextFlaggedIndex() {
+    const total = state.questions.length;
+    for (let step = 1; step <= total; step++) {
+      const index = (state.index + step) % total;
+      if (state.questions[index].is_flagged && index !== state.index) {
+        return index;
+      }
+    }
+    return -1;
   }
 
   function changeAnswer(question, value) {
@@ -381,7 +396,12 @@
 
   async function submitExam() {
     const unanswered = state.questions.length - state.questions.filter(isAnswered).length;
-    const warning = unanswered ? unanswered + " unanswered. " : "";
+    const flagged = state.questions.filter(function (question) {
+      return question.is_flagged;
+    }).length;
+    const warning =
+      (unanswered ? unanswered + " unanswered. " : "") +
+      (flagged ? flagged + " still flagged for review. " : "");
     if (!window.confirm(warning + "Submit your exam? You can't change your answers afterwards.")) {
       return;
     }
@@ -428,6 +448,12 @@
   }
 
   elements["start-button"].addEventListener("click", startExam);
+  elements["next-flagged-button"].addEventListener("click", function () {
+    const index = nextFlaggedIndex();
+    if (index !== -1) {
+      showQuestion(index, true);
+    }
+  });
   elements["previous-button"].addEventListener("click", function () {
     showQuestion(state.index - 1, true);
   });

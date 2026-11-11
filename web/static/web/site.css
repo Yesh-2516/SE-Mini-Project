@@ -35,6 +35,48 @@ main:focus {
 }
 
 /* State is also spelled out in each button's accessible name. */
-.nav-question.is-flagged {
+.nav-question.is-flagged,
+.key-swatch.is-flagged {
   box-shadow: 0 0 0 2px #fff, 0 0 0 4px #9a5b00;
+}
+
+/* The question on screen: a thicker border and an underline, so it doesn't
+   rely on colour and still shows on an answered (filled) button. */
+.nav-question[aria-current="true"],
+.key-swatch.is-current {
+  border-width: 3px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.navigator-key li {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.key-swatch {
+  border: 1px solid #0d6efd;
+  border-radius: 0.25rem;
+  display: inline-block;
+  font-size: 0.75rem;
+  height: 1.1rem;
+  line-height: 1;
+  text-align: center;
+  width: 1.1rem;
+}
+
+.key-swatch.btn-primary {
+  background: #0d6efd;
+}
+
+.key-swatch.key-outline {
+  background: #fff;
+  color: #0d6efd;
+}
+
+.key-swatch.is-current {
+  border-color: #0d6efd;
 }

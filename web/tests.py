@@ -345,6 +345,18 @@ class TakeExamPageTests(WebTestCase):
 
         self.assertNotContains(response, ANSWER_KEY)
 
+    def test_page_explains_the_question_navigator(self):
+        # TC-Deliver-02 (OEP-F-031): the key says what each button state means.
+        self.client.force_login(self.student)
+
+        response = self.client.get(self.url())
+
+        self.assertContains(response, '<nav aria-label="Questions">')
+        for label in ("Answered", "Not answered", "Flagged for review", "Question you're on"):
+            with self.subTest(label=label):
+                self.assertContains(response, label)
+        self.assertContains(response, 'id="next-flagged-button"')
+
     def test_session_login_can_call_the_delivery_api_with_csrf(self):
         client = self.client_class(enforce_csrf_checks=True)
         client.force_login(self.student)
