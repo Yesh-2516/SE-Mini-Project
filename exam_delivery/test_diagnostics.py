@@ -51,7 +51,7 @@ class AdminDiagnosticsTests(APITestCase):
 
     def test_database_connectivity_failure_returns_generic_degraded_status(self):
         self.client.force_authenticate(user=self.admin)
-        with patch("exam_delivery.views.connection.cursor", side_effect=Exception("secret host/password")):
+        with patch("exam_delivery.diagnostics.connection.cursor", side_effect=Exception("secret host/password")):
             response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -85,3 +85,10 @@ class AdminDiagnosticsTests(APITestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertNotIn("secret", str(response.data).lower())
+
+    def test_reports_the_running_django_version(self):
+        import django
+
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(self.url)
+        self.assertEqual(response.data["server"]["django_version"], django.get_version())
