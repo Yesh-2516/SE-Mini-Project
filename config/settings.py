@@ -88,6 +88,7 @@ INSTALLED_APPS = [
     'exam_management',
     'exam_delivery',
     'evaluation',
+    'reports',
     'web',
 ]
 
@@ -130,6 +131,12 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
         'OPTIONS': {
             'timeout': 30,
+            # Take the write lock when a transaction starts. SQLite's default
+            # (deferred) transactions begin as readers, and one that later
+            # tries to write while another request is writing fails at once
+            # with "database is locked", ignoring the timeout. Concurrent
+            # autosaves hit this during exams (docs/availability_report.md).
+            'transaction_mode': 'IMMEDIATE',
         },
     }
 }
@@ -222,3 +229,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# OEP-NF-004: audit-log entries are kept for at least one academic year.
+# Values under 365 days are raised to 365 (see accounts.audit_models).
+AUDIT_LOG_RETENTION_DAYS = int(os.environ.get('AUDIT_LOG_RETENTION_DAYS', '400'))

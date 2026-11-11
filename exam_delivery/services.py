@@ -1,15 +1,18 @@
 from datetime import timedelta
 from decimal import Decimal
-from django.db import transaction
+from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
+from accounts.audit import EVENT_SUBMISSION, record_audit_event, record_integrity_flag
 from exam_delivery.models import Attempt, Response
 from exam_management.models import Exam
 from exam_management.serializers import StudentExamQuestionSerializer
 from exam_management.services import ExamNotOpen, is_exam_open, shuffle_paper
 from question_bank.grading import OBJECTIVE_QUESTION_TYPES, grade_objective_answer
+from question_bank.models import Question
 
 
 class AttemptAlreadyClosed(APIException):
@@ -23,49 +26,124 @@ class ExamAlreadyAttempted(PermissionDenied):
     default_code = "exam_already_attempted"
 
 
+def _ensure_attempt_owner(attempt, student, message):
+    """Allow only the student who owns the attempt.
+
+    A student reaching for someone else's attempt is logged as an integrity
+    flag (OEP-NF-004) before the request is refused.
+    """
+    if getattr(student, "role", None) == "STUDENT" and attempt.student_id != student.id:
+        record_integrity_flag(
+            student,
+            "foreign_attempt_access",
+            attempt_id=attempt.id,
+            exam_id=attempt.exam_id,
+        )
+        raise PermissionDenied(message)
+    if getattr(student, "role", None) != "STUDENT":
+        raise PermissionDenied(message)
+
+
 def start_exam_attempt(*, exam, student, now=None):
     """Start or resume a student's exam attempt.
 
     Enforces the availability window (OEP-SR-004), single-attempt rule
     (OEP-F-034), and sets up a server-authoritative timer (OEP-F-030).
     Never exposes correct answers.
+
+    The single-attempt check and the insert run in one transaction under a
+    row lock on the student, and the database also carries a partial unique
+    constraint (one IN_PROGRESS attempt per exam and student). Two Start
+    requests sent at the same moment therefore cannot both create an
+    attempt: the second waits and then resumes the first, or, if it lost the
+    race at the constraint, resumes the winner.
     """
     now = now or timezone.now()
 
     if getattr(student, "role", None) != "STUDENT":
         raise PermissionDenied("Only students can start an exam attempt.")
 
-    existing_attempt = (
-        Attempt.objects.filter(exam=exam, student=student)
-        .order_by("-started_at")
-        .first()
-    )
+    try:
+        attempt, is_new, failure = _start_or_resume_locked(
+            exam=exam, student=student, now=now
+        )
+    except IntegrityError:
+        # Lost a race at the unique constraint: another request created the
+        # in-progress attempt first. Resume it instead of failing.
+        winner = (
+            Attempt.objects.filter(
+                exam=exam,
+                student=student,
+                status=Attempt.Status.IN_PROGRESS,
+            )
+            .order_by("-started_at")
+            .first()
+        )
+        if winner is None:
+            raise
+        return winner, False
 
-    if existing_attempt is not None:
-        if existing_attempt.status == Attempt.Status.IN_PROGRESS:
-            if existing_attempt.is_expired(now):
-                # Auto-submit expired attempt
-                submit_attempt(
-                    attempt=existing_attempt,
-                    student=student,
-                    reason=Attempt.SubmissionReason.TIMEOUT,
-                    now=now,
-                )
-                if not existing_attempt.allow_reattempt:
-                    raise ExamAlreadyAttempted()
-            else:
-                # An already-started attempt remains resumable even after the
-                # exam's admission window closes; its own deadline still applies.
-                return existing_attempt, False
-
-        elif not existing_attempt.allow_reattempt:
-            raise ExamAlreadyAttempted()
-
-    # The availability window governs creation, not resumption.
-    if not is_exam_open(exam, now):
+    # Raised only after the transaction has committed, so a timeout
+    # auto-submit performed above is kept even when the start is refused.
+    if failure == "already_attempted":
+        # ``attempt`` is the student's existing attempt in this case.
+        record_integrity_flag(
+            student,
+            "second_attempt_blocked",
+            exam_id=exam.id,
+            attempt_id=attempt.id,
+        )
+        raise ExamAlreadyAttempted()
+    if failure == "not_open":
         raise ExamNotOpen()
+    return attempt, is_new
 
+
+def _start_or_resume_locked(*, exam, student, now):
+    """Check the attempt rules and create the attempt in one transaction.
+
+    Returns ``(attempt, is_new, failure)``. ``failure`` is None, or the
+    reason the caller must raise once the transaction has committed. When
+    ``failure`` is ``"already_attempted"``, ``attempt`` is the existing
+    attempt that blocked the start (so the caller can flag it).
+    """
     with transaction.atomic():
+        # Serialise concurrent starts by the same student. SQLite ignores row
+        # locks (it serialises writers itself); the unique constraint is the
+        # backstop on every database.
+        get_user_model()._default_manager.select_for_update().get(pk=student.pk)
+
+        existing_attempt = (
+            Attempt.objects.filter(exam=exam, student=student)
+            .order_by("-started_at")
+            .first()
+        )
+
+        if existing_attempt is not None:
+            if existing_attempt.status == Attempt.Status.IN_PROGRESS:
+                if existing_attempt.is_expired(now):
+                    # Auto-submit expired attempt
+                    submit_attempt(
+                        attempt=existing_attempt,
+                        student=student,
+                        reason=Attempt.SubmissionReason.TIMEOUT,
+                        now=now,
+                    )
+                    if not existing_attempt.allow_reattempt:
+                        return existing_attempt, False, "already_attempted"
+                else:
+                    # An already-started attempt remains resumable even after
+                    # the exam's admission window closes; its own deadline
+                    # still applies.
+                    return existing_attempt, False, None
+
+            elif not existing_attempt.allow_reattempt:
+                return existing_attempt, False, "already_attempted"
+
+        # The availability window governs creation, not resumption.
+        if not is_exam_open(exam, now):
+            return None, False, "not_open"
+
         # Calculate server deadline
         candidate_end = now + timedelta(minutes=exam.duration_minutes)
         ends_at = candidate_end
@@ -96,15 +174,14 @@ def start_exam_attempt(*, exam, student, now=None):
         ]
         Response.objects.bulk_create(responses)
 
-        return attempt, True
+        return attempt, True, None
 
 
 def get_attempt_detail(*, attempt, student, now=None):
     """Return attempt details, questions, timer, and saved answers for student."""
     now = now or timezone.now()
 
-    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
-        raise PermissionDenied("Only the student who owns this attempt can access it.")
+    _ensure_attempt_owner(attempt, student, "Only the student who owns this attempt can access it.")
 
     # Check for timeout auto-submit
     if attempt.status == Attempt.Status.IN_PROGRESS and attempt.is_expired(now):
@@ -131,12 +208,16 @@ def get_attempt_detail(*, attempt, student, now=None):
         submitted_answer = resp.submitted_answer if resp else ""
         is_flagged = resp.is_flagged if resp else False
 
-        # Options allow-list per OEP-SR-004
-        options = (
-            eq.question.options
-            if eq.question.question_type in ("MCQ", "TRUE_FALSE")
-            else []
-        )
+        # Options allow-list per OEP-SR-004. True/False always offers the two
+        # fixed choices, whatever is stored on the question, so clients render
+        # a True/False choice and not a free-text box. Free-text types get none.
+        question_type = eq.question.question_type
+        if question_type == Question.QuestionType.MCQ:
+            options = list(eq.question.options)
+        elif question_type == Question.QuestionType.TRUE_FALSE:
+            options = ["True", "False"]
+        else:
+            options = []
 
         questions_data.append({
             "question_id": eq.question_id,
@@ -175,8 +256,7 @@ def get_attempt_timer(*, attempt, student, now=None):
     """Return server-synchronized countdown timer status."""
     now = now or timezone.now()
 
-    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
-        raise PermissionDenied("Only the student who owns this attempt can access its timer.")
+    _ensure_attempt_owner(attempt, student, "Only the student who owns this attempt can access its timer.")
 
     if attempt.status == Attempt.Status.IN_PROGRESS and attempt.is_expired(now):
         submit_attempt(
@@ -202,8 +282,7 @@ def autosave_responses(*, attempt, student, responses_data, now=None):
     """Save responses periodically during the exam (OEP-F-035)."""
     now = now or timezone.now()
 
-    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
-        raise PermissionDenied("Only the student who owns this attempt can save responses.")
+    _ensure_attempt_owner(attempt, student, "Only the student who owns this attempt can save responses.")
 
     if attempt.status != Attempt.Status.IN_PROGRESS:
         raise AttemptAlreadyClosed("Cannot autosave: attempt is already submitted or closed.")
@@ -260,17 +339,36 @@ def autosave_responses(*, attempt, student, responses_data, now=None):
     }
 
 
-@transaction.atomic
 def submit_attempt(*, attempt, student, responses_data=None, reason="manual", now=None):
     """Submit an exam attempt manually or on timeout (OEP-F-032, OEP-F-033).
+
+    The owner check runs outside the transaction so that an integrity flag it
+    logs is kept even though the request is refused.
+    """
+    _ensure_attempt_owner(
+        attempt,
+        student,
+        "Only the student who owns this attempt can submit it.",
+    )
+    return _submit_attempt(
+        attempt=attempt,
+        student=student,
+        responses_data=responses_data,
+        reason=reason,
+        now=now,
+    )
+
+
+@transaction.atomic
+def _submit_attempt(*, attempt, student, responses_data=None, reason="manual", now=None):
+    """Body of ``submit_attempt``; runs in one transaction.
 
     Idempotent: repeating the submission returns the recorded result without error (OEP-NF-002).
     Immediately auto-grades objective questions upon submission (OEP-F-040).
     """
     now = now or timezone.now()
 
-    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
-        raise PermissionDenied("Only the student who owns this attempt can submit it.")
+    _ensure_attempt_owner(attempt, student, "Only the student who owns this attempt can submit it.")
 
     # Idempotent handling (OEP-NF-002)
     if attempt.status == Attempt.Status.SUBMITTED:
@@ -358,6 +456,19 @@ def submit_attempt(*, attempt, student, responses_data=None, reason="manual", no
 
     attempt.save()
 
+    # OEP-NF-004: only IDs and scores are logged, never answer content.
+    record_audit_event(
+        EVENT_SUBMISSION,
+        actor=student,
+        description="Exam attempt submitted",
+        metadata={
+            "attempt_id": attempt.id,
+            "exam_id": attempt.exam_id,
+            "reason": str(submission_reason),
+            "objective_score": str(attempt.objective_score),
+        },
+    )
+
     return {
         "status": "submitted",
         "attempt_id": attempt.id,
@@ -371,8 +482,7 @@ def submit_attempt(*, attempt, student, responses_data=None, reason="manual", no
 
 def toggle_question_flag(*, attempt, student, question_id, is_flagged=None):
     """Toggle or set the flag on a question for review (OEP-F-031)."""
-    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
-        raise PermissionDenied("Only the student who owns this attempt can flag questions.")
+    _ensure_attempt_owner(attempt, student, "Only the student who owns this attempt can flag questions.")
 
     if attempt.status != Attempt.Status.IN_PROGRESS:
         raise AttemptAlreadyClosed("Attempt is already closed.")
@@ -397,8 +507,7 @@ def get_question_navigator(*, attempt, student, now=None):
     """Return overview of all questions with answered/flagged status (OEP-F-031)."""
     now = now or timezone.now()
 
-    if getattr(student, "role", None) != "STUDENT" or attempt.student_id != student.id:
-        raise PermissionDenied("Only the student who owns this attempt can access its navigator.")
+    _ensure_attempt_owner(attempt, student, "Only the student who owns this attempt can access its navigator.")
 
     exam_questions = (
         attempt.exam.exam_questions.select_related("question")
