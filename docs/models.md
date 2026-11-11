@@ -124,6 +124,9 @@ Represents an individual student's timed sitting of a scheduled exam.
 | `created_at` | DateTimeField | Auto now add | Record creation timestamp |
 | `updated_at` | DateTimeField | Auto now | Record update timestamp |
 
+**Constraints:**
+- `UniqueConstraint(fields=["exam", "student"], condition=Q(status="IN_PROGRESS"), name="unique_active_attempt_per_exam_student")`: at most one in-progress sitting per student and exam (OEP-F-034); closed attempts are not restricted.
+
 **Methods:**
 - `remaining_seconds(now=None)`: returns `max(0, int((ends_at - now).total_seconds()))` if `IN_PROGRESS`, else `0`.
 - `is_expired(now=None)`: returns `now >= ends_at`.

@@ -89,14 +89,18 @@
   - Remaining time is calculated strictly relative to the server clock (`ends_at - now`).
   - Device clock alteration or page reload on the client does not change the server timer.
   - Starting an exam while an active, unexpired sitting exists returns the current sitting (resuming with the accurate remaining countdown).
+- **True/False options (OEP-SR-004):** start, resume and attempt-detail responses always return `["True", "False"]` as the options of a True/False question, whatever is stored on the question. The question bank does not require options on True/False questions, and before this change a question saved without them was returned with no options, so the exam page (`web/static/web/exam.js`, which shows radio buttons only when `options` is non-empty) displayed a text box. MCQ options are returned as stored (shuffled per attempt) and the other types get none.
 - **Auto-Submit on Timeout (OEP-F-032, TC-Deliver-03):**
-  - Automatically submits when `now >= ends_at`, setting status to `SUBMITTED` and reason to `TIMEOUT`.
+  - Auto-submit is **lazy**: it happens only when an attempt past `ends_at` is next touched, through the start (resume), attempt-detail, timer, autosave or submit endpoints. The attempt is then set to `SUBMITTED` with reason `TIMEOUT` and its objective answers are graded.
+  - Nothing sweeps expired attempts. There is no scheduled job or background worker, so an expired attempt that nobody opens stays `IN_PROGRESS` in the database with no score until it is next accessed, and the diagnostics `active_attempts` count includes such attempts. A periodic sweep (for example a management command run by a scheduler) is not implemented.
+  - The deadline is still enforced meanwhile: `ends_at` is set on the server, answers sent after it are ignored, and `remaining_seconds` is `0`.
   - Once submitted, further attempts to autosave or alter answers return `410 Gone`.
 - **Manual Submit (OEP-F-033, TC-Deliver-04):**
   - Finalizes attempt with reason `MANUAL`, closing further answer changes.
   - Automatically evaluates objective answers (MCQ, True/False, Fill in the Blank) immediately via `grade_objective_answer` (OEP-F-040).
 - **Single-Attempt Rule & Re-Attempt Allowance (OEP-F-034, TC-Deliver-05):**
   - Second attempt on completed exam is rejected with `403 Forbidden` (`ExamAlreadyAttempted`).
+  - Simultaneous Start requests cannot create two attempts: the check and the insert run in one transaction under a row lock on the student, and a partial unique constraint (`unique_active_attempt_per_exam_student`, migration `0002`) allows only one `IN_PROGRESS` attempt per exam and student. A request that loses the race resumes the winning attempt. Row locks are ignored on SQLite, which serialises writers itself, so the constraint is the protection there.
   - Faculty or Admin can explicitly permit a re-attempt via `POST /api/exams/<id>/attempts/<attempt_id>/allow-reattempt/` (`allow_reattempt = True`).
 - **Question Navigation & Flag for Review (OEP-F-031, TC-Deliver-02):**
   - Students can toggle `is_flagged` on any question via `POST /api/exams/<id>/attempts/<attempt_id>/questions/<question_id>/flag/`.
@@ -107,7 +111,7 @@
 - **Health Diagnostics Panel (OEP-F-063, TC-Admin-04):**
   - Admin-only endpoint `GET /api/admin/diagnostics/` reports server operational status, database connectivity status, DB query latency, and live counts of active attempts, exams, and users.
 - **Non-Functional Requirements:**
-  - `TC-Perf-01` (OEP-NF-001): the test sends 200 exam-start requests through concurrent worker threads and reports P50/P90/P99 latency and error rate. No measured result is claimed until an actual test run is recorded.
+  - `TC-Perf-01` (OEP-NF-001): the test sends 200 exam-start requests through concurrent worker threads and reports P50/P90/P99 latency and error rate. No measured result is claimed until an actual test run is recorded: the run is still pending, because the test is skipped on SQLite, the only database configured in `config/settings.py` and used by CI. See `docs/performance_report.md`.
   - `TC-Rel-01` (OEP-NF-002): autosaved responses persist across client-session replacement; idempotent submission is verified. This is not a simulated network interruption.
   - `TC-Ops-01` (OEP-NF-003): 100 consecutive probes provide a single-run health-check success rate only. Scheduled-window uptime requires timestamped monitoring evidence over the full observation period.
 
