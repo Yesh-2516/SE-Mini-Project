@@ -1,9 +1,9 @@
 # Browser Checks for the Student Website
 
-Automated checks for the login, dashboard and exam pages (OEP-F-030, OEP-NF-005, TC-UX-01). They run in a real browser against a throwaway database, so `db.sqlite3` is never touched.
+Automated checks for the login, dashboard, exam and admin health pages (OEP-F-030, OEP-F-031, OEP-F-035, OEP-F-063, OEP-NF-005, TC-UX-01). They run in a real browser against a throwaway database, so `db.sqlite3` is never touched.
 
-- **Accessibility:** axe-core scans 7 screens for WCAG 2.0 and 2.1 A and AA, plus best practices.
-- **Behaviour:** a full sitting, keyboard-only use, reload and resume, autosave retry, going offline and reconnecting, submit errors, session loss, timeout auto-submit, script in question text, a 375px screen and a hidden future exam.
+- **Accessibility:** axe-core scans 10 screens, including the admin dashboard and health panel, for WCAG 2.0 and 2.1 A and AA, plus best practices.
+- **Behaviour:** a full sitting, keyboard-only use, the question navigator and flags, admin-only access to the health panel, reload and resume, autosave retry, going offline and reconnecting, submit errors, session loss, timeout auto-submit, script in question text, a 375px screen and a hidden future exam.
 
 The latest results are in [results.md](results.md).
 

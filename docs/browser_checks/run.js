@@ -188,11 +188,24 @@ async function accessibilityScans(browser) {
   await scan(page, "Exam, multiple-choice question");
   await goToQuestionType(page, true);
   await scan(page, "Exam, written-answer question");
+  await answerCurrent(page);
+  await page.getByRole("button", { name: "Flag for review" }).click();
+  await page.getByRole("button", { name: "Remove flag" }).waitFor();
+  await waitForSaved(page);
+  await scan(page, "Exam, answered and flagged question");
 
   await page.getByRole("button", { name: "Submit exam" }).click();
   await page.locator("#exam-finished").waitFor();
   await scan(page, "Exam finished");
   await page.context().close();
+
+  const admin = await newPage(browser);
+  await logIn(admin, "admin_checks");
+  await scan(admin, "Admin dashboard");
+  await admin.getByRole("link", { name: "Check system health" }).click();
+  await admin.getByRole("heading", { name: "System health" }).waitFor();
+  await scan(admin, "System health");
+  await admin.context().close();
 }
 
 async function fullSitting(browser) {
@@ -354,6 +367,65 @@ async function offlineAndReconnect(browser) {
     }
   }
   throw new Error("question not found after reload");
+}
+
+// TC-Deliver-02 (OEP-F-031): jump to any question, flag and unflag, and see
+// both states on the navigator and in each button's accessible name.
+async function navigatorAndFlags(browser) {
+  const page = await newPage(browser);
+  const dialogs = [];
+  page.on("dialog", function (dialog) { dialogs.push(dialog.message()); });
+  await logIn(page, "student_navigator");
+  await openExam(page, seed.sample);
+  const buttons = page.locator("#navigator button");
+  const jumpToFlagged = page.getByRole("button", { name: "Go to a flagged question" });
+  expect(await jumpToFlagged.isDisabled(), "jump button enabled with nothing flagged");
+
+  await buttons.nth(2).click();
+  expect((await page.locator("#question-heading").textContent()) === "Question 3 of 4", "navigator didn't jump to question 3");
+  expect(await buttons.nth(2).getAttribute("aria-current") === "true", "question 3 not marked current");
+  const currentStyle = await buttons.nth(2).evaluate(function (b) {
+    const style = getComputedStyle(b);
+    return style.borderTopWidth + " " + style.textDecorationLine;
+  });
+  expect(currentStyle === "3px underline", "current question not visibly marked: " + currentStyle);
+
+  await answerCurrent(page);
+  await page.getByRole("button", { name: "Flag for review" }).click();
+  await page.getByRole("button", { name: "Remove flag" }).waitFor();
+  await waitForSaved(page);
+  const flaggedLabel = await buttons.nth(2).getAttribute("aria-label");
+  expect(flaggedLabel === "Question 3, answered, flagged", "label was '" + flaggedLabel + "'");
+  expect((await buttons.nth(2).textContent()) === "3*", "flagged button doesn't show *");
+
+  await buttons.nth(0).click();
+  await jumpToFlagged.click();
+  expect((await page.locator("#question-heading").textContent()) === "Question 3 of 4", "jump didn't reach the flagged question");
+
+  await page.getByRole("button", { name: "Submit exam" }).click();
+  expect(dialogs.length === 1 && dialogs[0].includes("1 still flagged"), "submit warning was '" + dialogs[0] + "'");
+  await page.getByRole("heading", { name: "Exam submitted" }).waitFor();
+  await page.context().close();
+
+  return "jumped to question 3, marked current, answered and flagged (label 'Question 3, answered, flagged'), jump-to-flagged worked, submit warned '1 still flagged'";
+}
+
+// TC-Admin-04 (OEP-F-063): only Admin can open the health panel.
+async function healthPanel(browser) {
+  const admin = await newPage(browser);
+  await logIn(admin, "admin_checks");
+  await admin.goto(BASE + "/system-health/");
+  const summary = (await admin.getByRole("status").first().textContent()).trim().replace(/\s+/g, " ");
+  expect(summary.startsWith("Healthy."), "summary was '" + summary + "'");
+  expect(await admin.getByText("Connected", { exact: true }).isVisible(), "database not shown as connected");
+  await admin.context().close();
+
+  const student = await newPage(browser);
+  await logIn(student, "student_navigator");
+  const response = await student.goto(BASE + "/system-health/");
+  expect(response.status() === 403, "student got " + response.status());
+  await student.context().close();
+  return "admin sees '" + summary + "'; student gets 403";
 }
 
 async function failedSaveRetries(browser) {
@@ -566,6 +638,8 @@ function writeResults(browserVersion, axeVersion) {
     });
     await check("Full sitting: answer, flag, navigate and submit", function () { return fullSitting(browser); });
     await check("Keyboard only", function () { return keyboardOnly(browser); });
+    await check("Question navigator and flags", function () { return navigatorAndFlags(browser); });
+    await check("Admin health panel", function () { return healthPanel(browser); });
     await check("Reload and resume keeps saved answers", function () { return reloadAndResume(browser); });
     await check("Failed autosave retries", function () { return failedSaveRetries(browser); });
     await check("Offline, then reconnect", function () { return offlineAndReconnect(browser); });
