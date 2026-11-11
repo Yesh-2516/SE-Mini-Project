@@ -1,9 +1,12 @@
+from datetime import datetime
+
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.cache import never_cache
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_http_methods, require_POST
 
@@ -11,6 +14,7 @@ from accounts.audit import client_ip, record_audit_event
 from accounts.backends import find_account
 from accounts.lockout import is_locked
 from accounts.models import User
+from exam_delivery.diagnostics import collect_diagnostics
 from web.forms import LoginForm
 from web.services import get_student_exam_rows, get_visible_exams
 
@@ -99,3 +103,16 @@ def take_exam(request, exam_id):
 
     exam = get_object_or_404(get_visible_exams(student=request.user), pk=exam_id)
     return render(request, "web/exam.html", {"exam": exam})
+
+
+@never_cache
+@login_required
+def system_health(request):
+    """Admin health panel: server status and database connectivity (OEP-F-063)."""
+
+    if request.user.role != User.Role.ADMIN:
+        raise PermissionDenied
+
+    diagnostics = collect_diagnostics()
+    diagnostics["checked_at"] = datetime.fromisoformat(diagnostics["timestamp"])
+    return render(request, "web/system_health.html", {"diagnostics": diagnostics})
