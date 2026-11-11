@@ -130,6 +130,12 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
         'OPTIONS': {
             'timeout': 30,
+            # Take the write lock when a transaction starts. SQLite's default
+            # (deferred) transactions begin as readers, and one that later
+            # tries to write while another request is writing fails at once
+            # with "database is locked", ignoring the timeout. Concurrent
+            # autosaves hit this during exams (docs/availability_report.md).
+            'transaction_mode': 'IMMEDIATE',
         },
     }
 }

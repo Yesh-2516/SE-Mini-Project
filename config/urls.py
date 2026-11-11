@@ -1,9 +1,12 @@
 from django.contrib import admin
 from django.urls import include, path
+
+from config.health import health
 from exam_delivery.views import AdminDiagnosticsView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("health/", health, name="health"),
     path("api/auth/", include("accounts.urls")),
     path("api/admin/users/", include("accounts.management_urls")),
     path("api/admin/courses/", include("courses.urls")),
