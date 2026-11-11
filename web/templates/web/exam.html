@@ -41,7 +41,14 @@
           <h2 class="h6">Questions</h2>
           <div id="navigator" class="d-flex flex-wrap gap-2 mb-2"></div>
         </nav>
+        <ul class="navigator-key list-unstyled small mb-2" aria-label="Key to the question buttons">
+          <li><span class="key-swatch btn-primary" aria-hidden="true"></span> Answered</li>
+          <li><span class="key-swatch key-outline" aria-hidden="true"></span> Not answered</li>
+          <li><span class="key-swatch key-outline is-flagged" aria-hidden="true">*</span> Flagged for review</li>
+          <li><span class="key-swatch key-outline is-current" aria-hidden="true"></span> Question you're on</li>
+        </ul>
         <p id="progress" class="small"></p>
+        <button type="button" id="next-flagged-button" class="btn btn-outline-secondary w-100 mb-2" disabled>Go to a flagged question</button>
         <button type="button" id="submit-button" class="btn btn-success w-100">Submit exam</button>
       </div>
     </div>
