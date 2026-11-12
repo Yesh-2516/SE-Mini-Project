@@ -1,0 +1,55 @@
+{% extends "web/base.html" %}
+
+{% block title %}Audit log - Online Exam Portal{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
+  <div>
+    <h1 class="h3 mb-1">Audit log</h1>
+    <p class="text-body-secondary mb-0">Newest first, latest {{ page_size }} entries. Entries can't be edited or deleted.</p>
+  </div>
+  <form method="get" class="d-flex align-items-end gap-2">
+    <div>
+      <label class="form-label" for="event_type">Event</label>
+      <select class="form-select" id="event_type" name="event_type">
+        <option value="">All events</option>
+        {% for value, label in event_choices %}
+        <option value="{{ value }}"{% if value == event_type %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Filter</button>
+  </form>
+</div>
+
+{% if entries %}
+<div class="table-responsive">
+  <table class="table table-sm align-top">
+    <thead>
+      <tr>
+        <th scope="col">When (UTC)</th>
+        <th scope="col">Event</th>
+        <th scope="col">User</th>
+        <th scope="col">Details</th>
+        <th scope="col">IP address</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr>
+        <td class="text-nowrap">{{ entry.log.created_at|date:"j M Y, H:i:s" }}</td>
+        <td><span class="badge text-bg-secondary">{{ entry.label }}</span></td>
+        <td>{{ entry.log.actor.username|default:"-" }}</td>
+        <td>{{ entry.log.description }}</td>
+        <td>{{ entry.log.ip_address|default:"-" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p>No entries{% if event_type %} for this event{% endif %}.</p>
+{% endif %}
+
+<p><a href="{% url 'web-dashboard' %}">Back to dashboard</a></p>
+{% endblock %}

@@ -1,0 +1,98 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ exam.title }} report - Online Exam Portal{% endblock %}
+
+{% block content %}
+{% with s=report.summary %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <h1 class="h3 mb-0">{{ exam.title }}: class report</h1>
+  <div class="d-flex gap-2">
+    <a class="btn btn-success" href="{{ xlsx_url }}">Download Excel</a>
+    <a class="btn btn-outline-danger" href="{{ pdf_url }}">Download PDF</a>
+  </div>
+</div>
+
+{% if s.pending_evaluation %}
+<div class="alert alert-warning" role="status">
+  {{ s.pending_evaluation }} student{{ s.pending_evaluation|pluralize }} still {{ s.pending_evaluation|pluralize:"has,have" }} answers waiting to be graded and {{ s.pending_evaluation|pluralize:"is,are" }} not counted yet.
+  <a href="{% url 'web-grading' %}?exam_id={{ exam.id }}">Grade them</a>.
+</div>
+{% endif %}
+
+<section aria-labelledby="summary-heading" class="mb-4">
+  <h2 id="summary-heading" class="visually-hidden">Summary</h2>
+  <div class="row g-3">
+    <div class="col-6 col-md"><div class="card text-center"><div class="card-body">
+      <div class="small text-body-secondary">Students counted</div>
+      <div class="fs-3 fw-semibold">{{ s.students_counted }}</div>
+    </div></div></div>
+    <div class="col-6 col-md"><div class="card text-center"><div class="card-body">
+      <div class="small text-body-secondary">Average</div>
+      <div class="fs-3 fw-semibold">{{ s.average|default_if_none:"-" }}</div>
+    </div></div></div>
+    <div class="col-6 col-md"><div class="card text-center"><div class="card-body">
+      <div class="small text-body-secondary">Highest</div>
+      <div class="fs-3 fw-semibold">{{ s.highest|default_if_none:"-" }}</div>
+    </div></div></div>
+    <div class="col-6 col-md"><div class="card text-center"><div class="card-body">
+      <div class="small text-body-secondary">Lowest</div>
+      <div class="fs-3 fw-semibold">{{ s.lowest|default_if_none:"-" }}</div>
+    </div></div></div>
+    <div class="col-6 col-md"><div class="card text-center"><div class="card-body">
+      <div class="small text-body-secondary">Out of</div>
+      <div class="fs-3 fw-semibold">{{ s.max_score }}</div>
+    </div></div></div>
+  </div>
+</section>
+
+<div class="row g-4">
+  <section class="col-lg-5" aria-labelledby="distribution-heading">
+    <h2 id="distribution-heading" class="h5">Score distribution</h2>
+    <table class="table table-sm align-middle">
+      <thead><tr><th scope="col">Score</th><th scope="col" class="text-end">Students</th><th scope="col"><span class="visually-hidden">Bar</span></th></tr></thead>
+      <tbody>
+        {% for row in report.distribution %}
+        <tr>
+          <th scope="row" class="fw-normal">{{ row.range }}</th>
+          <td class="text-end">{{ row.students }}</td>
+          <td class="w-50" aria-hidden="true">
+            <div class="bg-primary rounded" style="height: 0.75rem; width: {{ row.bar }}%;"></div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="col-lg-7" aria-labelledby="results-heading">
+    <h2 id="results-heading" class="h5">Results</h2>
+    {% if report.results %}
+    <table class="table table-sm">
+      <thead>
+        <tr>
+          <th scope="col">Roll no.</th>
+          <th scope="col">Name</th>
+          <th scope="col" class="text-end">Score</th>
+          <th scope="col" class="text-end">%</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in report.results %}
+        <tr>
+          <td>{{ row.roll_number|default:"-" }}</td>
+          <th scope="row" class="fw-normal">{{ row.name }}</th>
+          <td class="text-end">{{ row.score }} / {{ s.max_score }}</td>
+          <td class="text-end">{{ row.percentage }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>No fully graded attempts yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endwith %}
+
+<p><a href="{% url 'web-reports' %}">All reports</a> &middot; <a href="{% url 'web-dashboard' %}">Dashboard</a></p>
+{% endblock %}

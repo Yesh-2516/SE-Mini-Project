@@ -4,7 +4,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from django.views.decorators.debug import sensitive_post_parameters
@@ -14,6 +14,7 @@ from accounts.audit import client_ip, record_audit_event
 from accounts.backends import find_account
 from accounts.lockout import is_locked
 from accounts.models import User
+from evaluation.subjective import get_grading_queue
 from exam_delivery.diagnostics import collect_diagnostics
 from web.forms import LoginForm
 from web.services import get_student_exam_rows, get_visible_exams
@@ -91,6 +92,15 @@ def dashboard(request):
     context = {}
     if request.user.role == User.Role.STUDENT:
         context["exam_rows"] = get_student_exam_rows(student=request.user)
+    else:
+        context["pending_grading"] = get_grading_queue()["total_pending"]
+        try:
+            # Present once the Exams admin page is registered.
+            context["manage_exams_url"] = reverse(
+                "admin:exam_management_exam_changelist"
+            )
+        except NoReverseMatch:
+            context["manage_exams_url"] = None
     return render(request, "web/dashboard.html", context)
 
 
