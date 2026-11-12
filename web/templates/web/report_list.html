@@ -1,0 +1,40 @@
+{% extends "web/base.html" %}
+
+{% block title %}Class reports - Online Exam Portal{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-3">Class reports</h1>
+
+{% if exams %}
+<div class="table-responsive">
+  <table class="table align-middle">
+    <thead>
+      <tr>
+        <th scope="col">Exam</th>
+        <th scope="col">Status</th>
+        <th scope="col" class="text-end">Students submitted</th>
+        <th scope="col" class="text-end">Fully graded</th>
+        <th scope="col"><span class="visually-hidden">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for exam in exams %}
+      <tr>
+        <th scope="row" class="fw-normal">{{ exam.title }}</th>
+        <td>{{ exam.get_status_display }}</td>
+        <td class="text-end">{{ exam.submitted }}</td>
+        <td class="text-end">{{ exam.graded }}</td>
+        <td class="text-end">
+          <a class="btn btn-sm btn-primary" href="{% url 'web-report' exam.id %}">Open report <span class="visually-hidden">for {{ exam.title }}</span></a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p>There are no exams yet.</p>
+{% endif %}
+
+<p><a href="{% url 'web-dashboard' %}">Back to dashboard</a></p>
+{% endblock %}

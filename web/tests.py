@@ -269,7 +269,7 @@ class DashboardTests(WebTestCase):
         response = self.client.get(reverse("web-dashboard"))
 
         self.assertNotIn("exam_rows", response.context)
-        self.assertContains(response, "built yet")
+        self.assertContains(response, reverse("web-grading"))
 
 
 class TakeExamPageTests(WebTestCase):

@@ -1,0 +1,51 @@
+{% extends "web/base.html" %}
+
+{% block title %}Scorecard: {{ card.exam_title }} - Online Exam Portal{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-1">Scorecard: {{ card.exam_title }}</h1>
+<p class="text-body-secondary">Submitted {{ card.submitted_at|date:"j M Y, H:i" }} UTC</p>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="card text-center border-primary"><div class="card-body">
+    <div class="small text-body-secondary">Total score</div>
+    <div class="fs-2 fw-semibold">{{ card.total_score }} / {{ card.max_score }}</div>
+  </div></div></div>
+  <div class="col-6 col-md-4"><div class="card text-center"><div class="card-body">
+    <div class="small text-body-secondary">Auto-graded questions</div>
+    <div class="fs-4">{{ card.objective_score }}</div>
+  </div></div></div>
+  <div class="col-6 col-md-4"><div class="card text-center"><div class="card-body">
+    <div class="small text-body-secondary">Teacher-graded questions</div>
+    <div class="fs-4">{{ card.subjective_score }}</div>
+  </div></div></div>
+</div>
+
+<h2 class="h5">Question by question</h2>
+<div class="table-responsive">
+  <table class="table align-top">
+    <thead>
+      <tr>
+        <th scope="col">#</th>
+        <th scope="col">Question</th>
+        <th scope="col">Your answer</th>
+        <th scope="col" class="text-end">Marks</th>
+        <th scope="col">Feedback</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for q in card.questions %}
+      <tr>
+        <td>{{ q.position }}</td>
+        <th scope="row" class="fw-normal">{{ q.text }}</th>
+        <td style="white-space: pre-wrap;">{{ q.submitted_answer|default:"(not answered)" }}</td>
+        <td class="text-end text-nowrap">{{ q.marks_obtained|default_if_none:"0" }} / {{ q.max_marks }}</td>
+        <td>{{ q.feedback|default:"-" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p><a href="{% url 'web-results' %}">All results</a> &middot; <a href="{% url 'web-dashboard' %}">Dashboard</a></p>
+{% endblock %}

@@ -32,11 +32,46 @@
   {% else %}
   <p>You have no open exams right now.</p>
   {% endif %}
-{% elif user.role == "ADMIN" %}
-  <h2 class="h5">System</h2>
-  <p><a class="btn btn-primary" href="{% url 'web-system-health' %}">Check system health</a></p>
-  <p>Other admin screens aren't built yet. Please use the API for now.</p>
+
+  <h2 class="h5 mt-4">Your results</h2>
+  <p><a class="btn btn-outline-primary" href="{% url 'web-results' %}">View your results</a></p>
 {% else %}
-  <p>{{ user.get_role_display }} screens aren't built yet. Please use the API for now.</p>
+  <h2 class="h5">Exams and grading</h2>
+  <div class="row g-3 mb-4">
+    {% if manage_exams_url %}
+    <div class="col-md-4">
+      <div class="card h-100"><div class="card-body">
+        <h3 class="h6 card-title">Exams</h3>
+        <p class="card-text small">Create exams, pick questions and courses, and publish.</p>
+        <a class="btn btn-primary" href="{{ manage_exams_url }}">Manage exams</a>
+      </div></div>
+    </div>
+    {% endif %}
+    <div class="col-md-4">
+      <div class="card h-100"><div class="card-body">
+        <h3 class="h6 card-title">Grading</h3>
+        <p class="card-text small">
+          {% if pending_grading %}{{ pending_grading }} answer{{ pending_grading|pluralize }} waiting to be graded.{% else %}Nothing waiting to be graded.{% endif %}
+        </p>
+        <a class="btn btn-primary" href="{% url 'web-grading' %}">Grade answers</a>
+      </div></div>
+    </div>
+    <div class="col-md-4">
+      <div class="card h-100"><div class="card-body">
+        <h3 class="h6 card-title">Class reports</h3>
+        <p class="card-text small">Average, highest and lowest scores, with Excel and PDF export.</p>
+        <a class="btn btn-primary" href="{% url 'web-reports' %}">View reports</a>
+      </div></div>
+    </div>
+  </div>
+
+  {% if user.role == "ADMIN" %}
+  <h2 class="h5">System</h2>
+  <p class="d-flex flex-wrap gap-2">
+    <a class="btn btn-primary" href="{% url 'web-system-health' %}">Check system health</a>
+    <a class="btn btn-primary" href="{% url 'web-audit-log' %}">View audit log</a>
+    <a class="btn btn-outline-primary" href="{% url 'admin:index' %}">Users and courses</a>
+  </p>
+  {% endif %}
 {% endif %}
 {% endblock %}

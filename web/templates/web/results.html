@@ -1,0 +1,40 @@
+{% extends "web/base.html" %}
+
+{% block title %}Your results - Online Exam Portal{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-3">Your results</h1>
+
+{% if scorecards %}
+<ul class="list-group mb-4">
+  {% for card in scorecards %}
+  <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div>
+      <div class="fw-semibold">{{ card.exam_title }}</div>
+      <div class="small text-body-secondary">Submitted {{ card.submitted_at|date:"j M Y, H:i" }} UTC</div>
+    </div>
+    <div class="d-flex align-items-center gap-3">
+      <span class="fs-5 fw-semibold">{{ card.total_score }} / {{ card.max_score }}</span>
+      <a class="btn btn-primary" href="{% url 'web-scorecard' card.attempt_id %}">View scorecard <span class="visually-hidden">for {{ card.exam_title }}</span></a>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% elif not waiting %}
+<p>You have no results yet.</p>
+{% endif %}
+
+{% if waiting %}
+<h2 class="h5">Waiting for grading</h2>
+<ul class="list-group mb-4">
+  {% for attempt in waiting %}
+  <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <span>{{ attempt.exam.title }}</span>
+    <span class="badge text-bg-warning">Your teacher hasn't finished grading</span>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<p><a href="{% url 'web-dashboard' %}">Back to dashboard</a></p>
+{% endblock %}

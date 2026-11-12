@@ -1,0 +1,67 @@
+{% extends "web/base.html" %}
+
+{% block title %}Grade answers - Online Exam Portal{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-1">Grade answers</h1>
+<p class="text-body-secondary">
+  Short answers and fill-in-the-blank answers that need marking by hand.
+  Multiple-choice and true/false answers are graded automatically.
+</p>
+
+{% if exam_id %}
+<p><a href="{% url 'web-grading' %}">Show all exams</a></p>
+{% endif %}
+
+{% if not queue.total_pending %}
+<div class="alert alert-success" role="status">Nothing to grade. Every submitted answer has been marked.</div>
+{% endif %}
+
+{% for group in queue.exams %}
+<section class="mb-4" aria-labelledby="exam-{{ group.exam_id }}">
+  <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2">
+    <h2 id="exam-{{ group.exam_id }}" class="h5 mb-2">{{ group.title }}</h2>
+    <span class="text-body-secondary small">{{ group.pending_count }} waiting
+      {% if not exam_id %}&middot; <a href="{% url 'web-grading' %}?exam_id={{ group.exam_id }}">only this exam</a>{% endif %}</span>
+  </div>
+
+  {% for item in group.responses %}
+  <article class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+        <div>
+          <strong>{{ item.student.name }}</strong>
+          {% if item.student.roll_number %}<span class="text-body-secondary">({{ item.student.roll_number }})</span>{% endif %}
+        </div>
+        <div class="small text-body-secondary">Submitted {{ item.submitted_at|date:"j M Y, H:i" }} UTC</div>
+      </div>
+      <p class="mb-1"><span class="fw-semibold">Question:</span> {{ item.question_text }}</p>
+      <div class="mb-3">
+        <span class="fw-semibold">Student's answer:</span>
+        <div class="border rounded p-2 bg-body-tertiary" style="white-space: pre-wrap;">{{ item.submitted_answer|default:"(left blank)" }}</div>
+      </div>
+
+      <form method="post" action="{% url 'web-grade-response' item.response_id %}" class="row g-2 align-items-end">
+        {% csrf_token %}
+        {% if exam_id %}<input type="hidden" name="exam_id" value="{{ exam_id }}">{% endif %}
+        <div class="col-sm-3 col-md-2">
+          <label class="form-label" for="marks-{{ item.response_id }}">Marks (out of {{ item.max_marks }})</label>
+          <input class="form-control" id="marks-{{ item.response_id }}" name="marks" type="number"
+                 min="0" max="{{ item.max_marks }}" step="0.01" required>
+        </div>
+        <div class="col-sm-9 col-md-8">
+          <label class="form-label" for="feedback-{{ item.response_id }}">Feedback (optional)</label>
+          <input class="form-control" id="feedback-{{ item.response_id }}" name="feedback" type="text" maxlength="2000">
+        </div>
+        <div class="col-md-2">
+          <button type="submit" class="btn btn-primary w-100">Save marks</button>
+        </div>
+      </form>
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% endfor %}
+
+<p><a href="{% url 'web-dashboard' %}">Back to dashboard</a></p>
+{% endblock %}
