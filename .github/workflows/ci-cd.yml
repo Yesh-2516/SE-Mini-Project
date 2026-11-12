@@ -236,6 +236,38 @@ jobs:
           name: coverage-report
           path: coverage-html
 
+  # Branch protection on main requires a check named "test" (the job name
+  # from the old Django CI workflow). This gate keeps that name and passes
+  # only if every build, test, lint and security job passed.
+  test:
+    name: test
+    if: always()
+    needs:
+      - build
+      - backend-tests
+      - frontend-tests
+      - backend-lint
+      - frontend-lint
+      - backend-security
+      - dependency-audit
+      - codeql
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every job to have passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, sys
+          results = {job: info["result"] for job, info in json.loads(os.environ["NEEDS"]).items()}
+          for job, result in results.items():
+              print(f"{job}: {result}")
+          failed = [job for job, result in results.items() if result != "success"]
+          if failed:
+              sys.exit(f"Not passed: {', '.join(failed)}")
+          print("All required jobs passed.")
+          EOF
+
   # There is no hosted server yet. Staging starts the app on the runner from
   # a fresh database and checks it serves pages (a smoke test). Production
   # does the same on main and publishes the release package as an artifact.
