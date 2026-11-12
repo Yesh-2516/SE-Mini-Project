@@ -1,0 +1,19 @@
+[run]
+branch = True
+relative_files = True
+source =
+    accounts
+    config
+    courses
+    evaluation
+    exam_delivery
+    exam_management
+    question_bank
+    reports
+    web
+omit =
+    */migrations/*
+    */test_*.py
+    */tests.py
+    */testing.py
+    manage.py
