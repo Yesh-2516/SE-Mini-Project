@@ -25,6 +25,10 @@
     </nav>
   </header>
   <main id="main" class="container py-4" tabindex="-1">
+    {% for message in messages %}
+    <div class="alert {% if message.level_tag == 'error' %}alert-danger{% elif message.level_tag == 'success' %}alert-success{% else %}alert-info{% endif %}"
+         role="{% if message.level_tag == 'error' %}alert{% else %}status{% endif %}">{{ message }}</div>
+    {% endfor %}
     {% block content %}{% endblock %}
   </main>
   {% block scripts %}{% endblock %}

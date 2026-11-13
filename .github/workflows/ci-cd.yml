@@ -1,0 +1,310 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+      - "chore/**"
+      - "fix/**"
+      - "docs/**"
+  pull_request:
+    branches:
+      - main
+
+# A newer push to the same branch cancels the older run.
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.13"
+  NODE_VERSION: "22"
+  DJANGO_SETTINGS_MODULE: config.settings
+
+jobs:
+  # ---------------------------------------------------------------- Stage 1
+  build:
+    name: Build and Setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Django system check
+        run: python manage.py check
+      - name: Check for missing migrations
+        run: python manage.py makemigrations --check --dry-run
+      - name: Apply migrations to a fresh database
+        run: python manage.py migrate --noinput
+
+  # ---------------------------------------------------------------- Stage 2
+  backend-tests:
+    name: Backend Testing
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      passed: ${{ steps.summary.outputs.passed }}
+      coverage: ${{ steps.summary.outputs.coverage }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Run API and service tests with coverage
+        env:
+          COVERAGE_FILE: .coverage.backend
+        run: >
+          python -m pytest --ignore=web
+          --cov --cov-config=.coveragerc --cov-report=
+          --junitxml=junit-backend.xml
+      - name: Coverage report
+        if: always()
+        env:
+          COVERAGE_FILE: .coverage.backend
+        run: python -m coverage json -o coverage-backend.json
+      - name: Write test and coverage summary
+        id: summary
+        if: always()
+        run: python .github/scripts/ci_summary.py tests "Backend Testing" junit-backend.xml coverage-backend.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-backend
+          path: |
+            .coverage.backend
+            junit-backend.xml
+          include-hidden-files: true
+
+  frontend-tests:
+    name: Frontend Testing
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      passed: ${{ steps.summary.outputs.passed }}
+      coverage: ${{ steps.summary.outputs.coverage }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Run website page tests with coverage
+        env:
+          COVERAGE_FILE: .coverage.frontend
+        run: >
+          python -m pytest web
+          --cov --cov-config=.coveragerc --cov-report=
+          --junitxml=junit-frontend.xml
+      - name: Coverage report
+        if: always()
+        env:
+          COVERAGE_FILE: .coverage.frontend
+        run: python -m coverage json -o coverage-frontend.json
+      - name: Write test and coverage summary
+        id: summary
+        if: always()
+        run: python .github/scripts/ci_summary.py tests "Frontend Testing" junit-frontend.xml coverage-frontend.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-frontend
+          path: |
+            .coverage.frontend
+            junit-frontend.xml
+          include-hidden-files: true
+
+  backend-lint:
+    name: Backend Linting (Ruff)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install ruff
+      # Fails on syntax errors, undefined names and other bugs.
+      - name: Lint for errors
+        run: ruff check . --exclude .venv,docs --select E9,F63,F7,F82 --output-format github
+      # Style findings are reported but don't fail the build.
+      - name: Style report (warnings only)
+        run: ruff check . --exclude .venv,docs --select F --output-format github --exit-zero
+
+  frontend-lint:
+    name: Frontend Linting (ESLint)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install ESLint
+        run: npm install --no-save --no-package-lock eslint@9 @eslint/js@9 globals
+      - name: Lint website JavaScript
+        run: npx eslint web/static
+
+  backend-security:
+    name: Backend Security Scan (Bandit)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install bandit
+      - name: Scan for medium and high severity issues
+        run: >
+          bandit -r accounts config courses evaluation exam_delivery
+          exam_management question_bank reports web
+          -x "*/test_*.py,*/tests.py,*/testing.py" -ll
+
+  dependency-audit:
+    name: Dependency Audit (pip-audit)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install pip-audit
+      - name: Check requirements for known vulnerabilities
+        run: pip-audit -r requirements.txt
+
+  codeql:
+    name: CodeQL Security Analysis
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python, javascript-typescript
+      - uses: github/codeql-action/analyze@v3
+
+  # ---------------------------------------------------------------- Stage 3
+  summary:
+    name: Pipeline Summary
+    if: always()
+    needs:
+      - build
+      - backend-tests
+      - frontend-tests
+      - backend-lint
+      - frontend-lint
+      - backend-security
+      - dependency-audit
+      - codeql
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install coverage
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          merge-multiple: true
+      - name: Combine coverage from both test jobs
+        run: |
+          python -m coverage combine --keep .coverage.backend .coverage.frontend || true
+          python -m coverage json -o coverage-total.json || true
+          python -m coverage html -d coverage-html || true
+      - name: Write pipeline summary
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: python .github/scripts/ci_summary.py pipeline coverage-total.json junit-backend.xml junit-frontend.xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage-html
+
+  # Branch protection on main requires a check named "test" (the job name
+  # from the old Django CI workflow). This gate keeps that name and passes
+  # only if every build, test, lint and security job passed.
+  test:
+    name: test
+    if: always()
+    needs:
+      - build
+      - backend-tests
+      - frontend-tests
+      - backend-lint
+      - frontend-lint
+      - backend-security
+      - dependency-audit
+      - codeql
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every job to have passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, sys
+          results = {job: info["result"] for job, info in json.loads(os.environ["NEEDS"]).items()}
+          for job, result in results.items():
+              print(f"{job}: {result}")
+          failed = [job for job, result in results.items() if result != "success"]
+          if failed:
+              sys.exit(f"Not passed: {', '.join(failed)}")
+          print("All required jobs passed.")
+          EOF
+
+  # There is no hosted server yet. Staging starts the app on the runner from
+  # a fresh database and checks it serves pages (a smoke test). Production
+  # does the same on main and publishes the release package as an artifact.
+  deploy-staging:
+    name: Deploy to Staging
+    if: github.ref != 'refs/heads/main'
+    needs: [backend-tests, frontend-tests, backend-lint, frontend-lint, backend-security, dependency-audit]
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Start the app and smoke test it
+        run: bash .github/scripts/smoke_test.sh
+
+  deploy-production:
+    name: Deploy to Production
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [backend-tests, frontend-tests, backend-lint, frontend-lint, backend-security, dependency-audit, codeql]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Start the app and smoke test it
+        run: bash .github/scripts/smoke_test.sh
+      - name: Build release package
+        run: git archive --format=zip -o online-exam-portal-${{ github.sha }}.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.sha }}
+          path: online-exam-portal-${{ github.sha }}.zip
